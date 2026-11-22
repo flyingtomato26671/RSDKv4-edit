@@ -208,7 +208,7 @@ static_assert(offsetof(Entity, type) == 250 && offsetof(Entity, priority) == 252
 #endif
 static inline Entity *PS1ScanLive(Entity *e, Entity *end)
 {
-#ifdef RETRO_PS1_HOST_TOOL // tools/rsdkmanifest (built for the host): the same scan in C
+#if defined(RETRO_PS1_HOST_TOOL) || defined(RETRO_NDS) // tools/rsdkmanifest (host) / DS: the same scan in C
     while (e != end && (e->type == OBJ_TYPE_BLANKOBJECT || e->priority == PRIORITY_INACTIVE)) ++e;
     return e;
 #else
