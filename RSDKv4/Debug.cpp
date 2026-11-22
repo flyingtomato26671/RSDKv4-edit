@@ -1,4 +1,5 @@
 #include "RetroEngine.hpp"
+#include <stdarg.h>
 
 bool endLine   = true;
 int touchFlags = 0;

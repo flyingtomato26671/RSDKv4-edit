@@ -1,9 +1,13 @@
 #include "RetroEngine.hpp"
 
 #if RETRO_PLATFORM == RETRO_PS1
+#ifdef RETRO_NDS
+extern "C" uint16_t NdsPollInput(void); // nds/input.c: libnds keys -> bit mask, bit = INPUT_* index
+#else
 #include <psyqo/advancedpad.hh>
 #include "../ps1/pad.hh"
 extern PS1Pad *g_ps1Pad; // main.cpp (initialized in start()); port 1 only (docs/43 C11)
+#endif
 volatile uint16_t g_ps1PadTestMask  = 0; // GDB-injected input, bit = INPUT_* index (test harness)
 volatile uint16_t g_ps1PadButtons   = 0; // last input mask (bit = INPUT_* index)
 volatile uint32_t g_ps1PadConnected = 0; // pad 1 seen by the BIOS driver
@@ -489,6 +493,7 @@ void ProcessInput()
 #elif RETRO_PLATFORM == RETRO_PS1
     // psyqo::AdvancedPad, port 1 (as the Sonic CD port) + GDB-injected input (g_ps1PadTestMask, bit = INPUT_*
     // index); the SDL2 branch's held / pressed / INPUT_ANY handling. Phase 4 revisits the mapping with the menus.
+#ifndef RETRO_NDS
     using Pad = psyqo::AdvancedPad;
     static const Pad::Button map[INPUT_ANY] = { Pad::Up,       Pad::Down,   Pad::Left,   Pad::Right, Pad::Cross,
                                                 Pad::Circle,   Pad::Square, Pad::Triangle, Pad::L2,  Pad::R2,
@@ -500,6 +505,10 @@ void ProcessInput()
             if (g_ps1Pad->isButtonPressed(Pad::Pad::Pad1a, map[i]))
                 held |= 1 << i;
     }
+#else
+    uint16_t held  = g_ps1PadTestMask | NdsPollInput();
+    bool connected = true;
+#endif
     g_ps1PadConnected = connected;
     g_ps1PadButtons   = held;
     for (int i = 0; i < INPUT_ANY; i++) {

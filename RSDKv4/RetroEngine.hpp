@@ -64,7 +64,9 @@ typedef unsigned int uint;
 // sizes, SDL off) so outputs match the console.
 #define RETRO_PLATFORM   (RETRO_PS1)
 #define RETRO_DEVICETYPE (RETRO_STANDARD)
-#elif defined __mips__
+#elif defined __mips__ || defined RETRO_NDS
+// RETRO_NDS (Nintendo DS port, nds/): same console configuration as the PS1 (pre-converted data, int16 scripts);
+// only the platform layer (nds/) differs. PS1 builds (__mips__) are unaffected.
 #define RETRO_PLATFORM   (RETRO_PS1)
 #define RETRO_DEVICETYPE (RETRO_STANDARD)
 #elif defined _WIN32
