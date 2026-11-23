@@ -159,30 +159,124 @@ void DrawObjectList(int Layer)
     }
 }
 
-// Animated sprite of an object (rotation styles other than NONE need the rotated draw: a later step)
+// Animated sprite of an object (upstream's, rotation styles included)
 void DrawObjectAnimation(void *objScr, void *ent, int XPos, int YPos)
 {
     ObjectScript *objectScript = (ObjectScript *)objScr;
     Entity *entity             = (Entity *)ent;
     SpriteAnimation *sprAnim   = &animationList[objectScript->animFile->aniListOffset + entity->animation];
     SpriteFrame *frame         = &animFrames[sprAnim->frameListOffset + entity->frame];
-    switch (entity->direction) {
-        case FLIP_NONE:
-            DrawSpriteFlipped(frame->pivotX + XPos, frame->pivotY + YPos, frame->width, frame->height, frame->sprX, frame->sprY, FLIP_NONE,
-                              frame->sheetID);
+    int rotation               = 0;
+
+    switch (sprAnim->rotationStyle) {
+        case ROTSTYLE_NONE:
+            switch (entity->direction) {
+                case FLIP_NONE:
+                    DrawSpriteFlipped(frame->pivotX + XPos, frame->pivotY + YPos, frame->width, frame->height, frame->sprX, frame->sprY, FLIP_NONE,
+                                      frame->sheetID);
+                    break;
+
+                case FLIP_X:
+                    DrawSpriteFlipped(XPos - frame->width - frame->pivotX, frame->pivotY + YPos, frame->width, frame->height, frame->sprX,
+                                      frame->sprY, FLIP_X, frame->sheetID);
+                    break;
+                case FLIP_Y:
+
+                    DrawSpriteFlipped(frame->pivotX + XPos, YPos - frame->height - frame->pivotY, frame->width, frame->height, frame->sprX,
+                                      frame->sprY, FLIP_Y, frame->sheetID);
+                    break;
+
+                case FLIP_XY:
+                    DrawSpriteFlipped(XPos - frame->width - frame->pivotX, YPos - frame->height - frame->pivotY, frame->width, frame->height,
+                                      frame->sprX, frame->sprY, FLIP_XY, frame->sheetID);
+                    break;
+
+                default: break;
+            }
             break;
-        case FLIP_X:
-            DrawSpriteFlipped(XPos - frame->width - frame->pivotX, frame->pivotY + YPos, frame->width, frame->height, frame->sprX, frame->sprY,
-                              FLIP_X, frame->sheetID);
+
+        case ROTSTYLE_FULL:
+            DrawSpriteRotated(entity->direction, XPos, YPos, -frame->pivotX, -frame->pivotY, frame->sprX, frame->sprY, frame->width, frame->height,
+                              entity->rotation, frame->sheetID);
             break;
-        case FLIP_Y:
-            DrawSpriteFlipped(frame->pivotX + XPos, YPos - frame->height - frame->pivotY, frame->width, frame->height, frame->sprX, frame->sprY,
-                              FLIP_Y, frame->sheetID);
+
+        case ROTSTYLE_45DEG:
+            if (entity->rotation >= 0x100)
+                DrawSpriteRotated(entity->direction, XPos, YPos, -frame->pivotX, -frame->pivotY, frame->sprX, frame->sprY, frame->width,
+                                  frame->height, 0x200 - ((0x214 - entity->rotation) >> 6 << 6), frame->sheetID);
+            else
+                DrawSpriteRotated(entity->direction, XPos, YPos, -frame->pivotX, -frame->pivotY, frame->sprX, frame->sprY, frame->width,
+                                  frame->height, (entity->rotation + 20) >> 6 << 6, frame->sheetID);
             break;
-        case FLIP_XY:
-            DrawSpriteFlipped(XPos - frame->width - frame->pivotX, YPos - frame->height - frame->pivotY, frame->width, frame->height,
-                              frame->sprX, frame->sprY, FLIP_XY, frame->sheetID);
+
+        case ROTSTYLE_STATICFRAMES: {
+            if (entity->rotation >= 0x100)
+                rotation = 8 - ((532 - entity->rotation) >> 6);
+            else
+                rotation = (entity->rotation + 20) >> 6;
+            int frameID = entity->frame;
+            switch (rotation) {
+                case 0: // 0 deg
+                case 8: // 360 deg
+                    rotation = 0x00;
+                    break;
+
+                case 1: // 45 deg
+                    frameID += sprAnim->frameCount;
+                    if (entity->direction)
+                        rotation = 0;
+                    else
+                        rotation = 0x80;
+                    break;
+
+                case 2: // 90 deg
+                    rotation = 0x80;
+                    break;
+
+                case 3: // 135 deg
+                    frameID += sprAnim->frameCount;
+                    if (entity->direction)
+                        rotation = 0x80;
+                    else
+                        rotation = 0x100;
+                    break;
+
+                case 4: // 180 deg
+                    rotation = 0x100;
+                    break;
+
+                case 5: // 225 deg
+                    frameID += sprAnim->frameCount;
+                    if (entity->direction)
+                        rotation = 0x100;
+                    else
+                        rotation = 384;
+                    break;
+
+                case 6: // 270 deg
+                    rotation = 384;
+                    break;
+
+                case 7: // 315 deg
+                    frameID += sprAnim->frameCount;
+                    if (entity->direction)
+                        rotation = 384;
+                    else
+                        rotation = 0;
+                    break;
+
+                default: break;
+            }
+
+            frame = &animFrames[sprAnim->frameListOffset + frameID];
+            DrawSpriteRotated(entity->direction, XPos, YPos, -frame->pivotX, -frame->pivotY, frame->sprX, frame->sprY, frame->width, frame->height,
+                              rotation, frame->sheetID);
+            // DrawSpriteRotozoom(entity->direction, XPos, YPos, -frame->pivotX, -frame->pivotY, frame->sprX, frame->sprY, frame->width,
+            // frame->height,
+            //                  rotation, entity->scale, frame->sheetID);
             break;
+        }
+
         default: break;
     }
 }

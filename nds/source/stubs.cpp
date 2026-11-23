@@ -15,10 +15,6 @@ void FlipScreen() {}
 void RenderScene() {}
 void DrawDebugOverlays() {}
 void DrawTextMenu(void *, int, int) {}
-void DrawSpriteRotated(int, int, int, int, int, int, int, int, int, int, int) {}
-void DrawSpriteScaled(int, int, int, int, int, int, int, int, int, int, int, int) {}
-void DrawSpriteRotozoom(int, int, int, int, int, int, int, int, int, int, int, int) {}
-void DrawScaledTintMask(int, int, int, int, int, int, int, int, int, int, int, int) {}
 void GenerateBlendLookupTable() {}
 void FadeScreen_Create(void *) {}
 void FadeScreen_Main(void *) {}
