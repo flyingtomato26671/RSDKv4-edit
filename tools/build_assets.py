@@ -119,9 +119,12 @@ def main():
         copy_tree(sdata, data, ['*.gif', '*.wav', '*.ogg', '.DS_Store', 'Game/Menu/', 'Game/Models/', 'Stages/ZoneM/'])
         copy_tree(sbc, os.path.join(iso, 'Bytecode'), ['ZoneM.bin', '.DS_Store'])
     bc = os.path.join(iso, 'Bytecode')
-    run('1 scripts', [PY, os.path.join(HERE, 'scripts', 'patch_bytecode.py'), bc, '--game', a.game], env=env)
-    run('1 scripts', [PY, os.path.join(HERE, 'scripts', 'scene3d_stages.py'), bc, data], env=env)
-    run('1 scripts', [PY, os.path.join(HERE, 'scripts', 'patch_layouts.py'), data, '--game', a.game], env=env)
+    if a.ds:  # the PS1 patches (natives for the PS1's CPU) check every script against one exact build of the data; the DS runs the original bytecode
+        print('[1 scripts] skipped on the DS (original bytecode)', flush=True)
+    else:
+        run('1 scripts', [PY, os.path.join(HERE, 'scripts', 'patch_bytecode.py'), bc, '--game', a.game], env=env)
+        run('1 scripts', [PY, os.path.join(HERE, 'scripts', 'scene3d_stages.py'), bc, data], env=env)
+        run('1 scripts', [PY, os.path.join(HERE, 'scripts', 'patch_layouts.py'), data, '--game', a.game], env=env)
 
     run('2 manifest', ['make', '-s', '-C', os.path.join(HERE, 'rsdkmanifest'), 'CXX=' + tools['CXX'], 'GAME=' + a.game],
         env=env)
