@@ -14,6 +14,7 @@ int NdsEngineReady(void);
 int NdsEngineMode(void);
 void NdsEngineFrame(void);
 void NdsEngineInfo(char *buf, int n);
+const char *NdsLogLine(int back);
 }
 
 static volatile unsigned g_vbl = 0;
@@ -82,7 +83,8 @@ int main(void)
             printf("ticks last:%lu max:%lu\n", (unsigned long)lastT, (unsigned long)maxT);
             char info[200];
             NdsEngineInfo(info, sizeof(info));
-            printf("%s\n", info);
+            printf("%s\nlog:\n", info);
+            for (int i = 3; i >= 0; i--) printf("%s\n", NdsLogLine(i));
             sumV = 0;
             maxV = 0;
         }

@@ -18,3 +18,22 @@ extern "C" void NdsEngineInfo(char *buf, int n)
                      stageListCount[3], globalVariablesCount);
     snprintf(buf + k, n - k, "s00:[%.10s][%.4s] pl:%d", stageList[0][0].folder, stageList[0][0].id, playerListPos);
 }
+
+// Last engine log lines (PrintLog), newest last.
+#define NDS_LOG_LINES 5
+#define NDS_LOG_W 32
+static char s_log[NDS_LOG_LINES][NDS_LOG_W];
+static int s_logN = 0;
+extern "C" void NdsLogPush(const char *line)
+{
+    char *d = s_log[s_logN % NDS_LOG_LINES];
+    int i = 0;
+    for (; line[i] && line[i] != '\n' && i < NDS_LOG_W - 1; i++) d[i] = line[i];
+    d[i] = 0;
+    s_logN++;
+}
+extern "C" const char *NdsLogLine(int back) // 0 = newest
+{
+    if (back >= NDS_LOG_LINES || back >= s_logN) return "";
+    return s_log[(s_logN - 1 - back) % NDS_LOG_LINES];
+}
