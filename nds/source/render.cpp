@@ -3,15 +3,11 @@
 // No libnds here (it clashes with the engine's headers): the buffer is exported through NdsFrameBuffer().
 #include "RetroEngine.hpp"
 
-#define WIN_W 256
-#define WIN_H 192
-#define WIN_X0 32 // logic screen -> window crop
-#define WIN_Y0 24
+#include "ndsdraw.hpp"
 
 byte tilesetGFXData[TILESET_SIZE]; // the stage's 16x16 tiles, 8-bit (PS1 keeps them only in VRAM)
-static uint16_t s_spare[WIN_W * WIN_H]; // used until main.cpp hands over the VRAM back page
-static uint16_t *s_dst = s_spare;      // where the frame is drawn: the back page of the bitmap background (stride 256)
-static uint16_t s_dsPal[PALETTE_COUNT][PALETTE_COLOR_COUNT]; // fullPalette32 -> 15-bit with the alpha bit
+uint16_t *g_ndsDst = nullptr;
+byte graphicData[GFXDATA_SIZE]; // the stage's sprite sheets (8-bit)
 static int s_clearIndex = 0;
 static bool s_drawn = false;      // a frame was drawn since main last took it (a paused game draws nothing)
 volatile uint32_t g_ndsRenderTicks = 0; // ARM9 ticks (33.5 MHz) DrawStageGFX took last
@@ -19,7 +15,7 @@ volatile uint32_t g_ndsRenderTicks = 0; // ARM9 ticks (33.5 MHz) DrawStageGFX to
 #define ITCM_CODE __attribute__((section(".itcm"), long_call))
 #define HOT ITCM_CODE __attribute__((optimize("O3"), target("arm")))
 
-extern "C" void NdsSetBackBuffer(uint16_t *p) { s_dst = p ? p : s_spare; }
+extern "C" void NdsSetBackBuffer(uint16_t *p) { g_ndsDst = p; }
 extern "C" int NdsFrameDrawn(void)
 {
     int d   = s_drawn;
@@ -38,14 +34,6 @@ static inline uint32_t Ticks()
         lo = t[0];
     } while (hi != t[2]);
     return (hi << 16) | lo;
-}
-
-static inline uint16_t ToDS(const PaletteEntry &c) { return (uint16_t)(0x8000 | (c.r >> 3) | ((c.g >> 3) << 5) | ((c.b >> 3) << 10)); }
-
-static void BuildPalettes()
-{
-    for (int b = 0; b < PALETTE_COUNT; ++b)
-        for (int i = 0; i < PALETTE_COLOR_COUNT; ++i) s_dsPal[b][i] = ToDS(fullPalette32[b][i]);
 }
 
 // ---- the stage's 16x16 tiles (upstream LoadStageGIFFile, which the PS1 build leaves out): GIF -> tilesetGFXData
@@ -112,7 +100,7 @@ static HOT void DrawHLayerLines(TileLayer *layer, byte *lineScroll, int *deforma
     const ushort *cts   = tiles128x128.ps1Tile; // bits 0-9 tile, 10-11 direction, 12-15 plane
     for (int wy = 0; wy < WIN_H; ++wy) {
         const int ly = WIN_Y0 + wy; // logic line
-        const uint16_t *pal = s_dsPal[gfxLineBuffer[ly] & 7];
+        const uint16_t *pal = fullPalette[gfxLineBuffer[ly] & 7];
         int yy = tileYPos + ly;
         while (yy >= fullH) yy -= fullH;
         int ls = tileYPos + ly;
@@ -132,7 +120,7 @@ static HOT void DrawHLayerLines(TileLayer *layer, byte *lineScroll, int *deforma
         int lx = chunkX + WIN_X0;
         while (lx >= fullW) lx -= fullW;
 
-        uint16_t *dst = s_dst + wy * 256;
+        uint16_t *dst = g_ndsDst + wy * 256;
         int x = 0;
         while (x < WIN_W) {
             const int tx = lx & 15;
@@ -233,32 +221,60 @@ static void NdsDrawHLayer(int layerID)
 // ---- the engine's drawing interface (the rest stays a stub in stubs.cpp until its step)
 void ClearScreen(byte index) { s_clearIndex = index; }
 
-static uint32_t s_palSeen = 0xFFFFFFFF;
+static void DrawTileLayer(int k)
+{
+    if (activeTileLayers[k] >= LAYER_COUNT)
+        return;
+    if (stageLayouts[activeTileLayers[k]].type == LAYER_HSCROLL)
+        NdsDrawHLayer(k); // (vertical scroll, 3D floor and 3D sky layers: later steps)
+}
 
+// Upstream's DrawStageGFX order: the objects' draw layers interleaved with the tile layers.
 void DrawStageGFX()
 {
-    uint32_t t0 = Ticks();
+    if (!g_ndsDst)
+        return;
+    uint32_t t0  = Ticks();
     waterDrawPos = waterLevel - yScrollOffset;
     if (waterDrawPos < 0)
         waterDrawPos = 0;
     if (waterDrawPos > SCREEN_YSIZE)
         waterDrawPos = SCREEN_YSIZE;
-    if (g_ps1PalVersion != s_palSeen) { // every palette write bumps it (Palette.hpp)
-        BuildPalettes();
-        s_palSeen = g_ps1PalVersion;
-    }
-    uint32_t bg2 = s_dsPal[0][s_clearIndex];
+    uint32_t bg2 = fullPalette[0][s_clearIndex];
     bg2 |= bg2 << 16;
     for (int y = 0; y < WIN_H; ++y) {
-        uint32_t *row = (uint32_t *)(s_dst + y * 256);
+        uint32_t *row = (uint32_t *)(g_ndsDst + y * 256);
         for (int i = 0; i < WIN_W / 2; ++i) row[i] = bg2;
     }
-    for (int layerID = 0; layerID < 4; ++layerID) {
-        if (activeTileLayers[layerID] >= LAYER_COUNT)
-            continue;
-        if (stageLayouts[activeTileLayers[layerID]].type == LAYER_HSCROLL)
-            NdsDrawHLayer(layerID);
+
+    if (tLayerMidPoint < 3) {
+        DrawObjectList(0);
+        DrawTileLayer(0);
+        DrawObjectList(1);
+        DrawTileLayer(1);
+        DrawObjectList(2);
+        DrawObjectList(3);
+        DrawObjectList(4);
+        DrawTileLayer(2);
     }
-    s_drawn         = true;
+    else if (tLayerMidPoint < 6) {
+        DrawObjectList(0);
+        DrawTileLayer(0);
+        DrawObjectList(1);
+        DrawTileLayer(1);
+        DrawObjectList(2);
+        DrawTileLayer(2);
+        DrawObjectList(3);
+        DrawObjectList(4);
+    }
+    if (tLayerMidPoint < 6) {
+        DrawTileLayer(3);
+        DrawObjectList(5);
+        DrawObjectList(6);
+    }
+    if (fadeMode > 0)
+        DrawRectangle(0, 0, SCREEN_XSIZE, SCREEN_YSIZE, fadeR, fadeG, fadeB, fadeA);
+
+    s_drawn          = true;
     g_ndsRenderTicks = Ticks() - t0;
 }

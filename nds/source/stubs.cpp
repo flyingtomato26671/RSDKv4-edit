@@ -13,18 +13,8 @@ int InitRenderDevice() { return 1; }
 void ResetRenderStates() {}
 void FlipScreen() {}
 void RenderScene() {}
-void DrawObjectList(int) {}
-void DrawObjectAnimation(void *, void *, int, int) {}
 void DrawDebugOverlays() {}
 void DrawTextMenu(void *, int, int) {}
-void DrawRectangle(int, int, int, int, int, int, int, int) {}
-void DrawTintRectangle(int, int, int, int) {}
-void DrawSprite(int, int, int, int, int, int, int) {}
-void DrawBlendedSprite(int, int, int, int, int, int, int) {}
-void DrawSpriteFlipped(int, int, int, int, int, int, int, int) {}
-void DrawAlphaBlendedSprite(int, int, int, int, int, int, int, int) {}
-void DrawAdditiveBlendedSprite(int, int, int, int, int, int, int, int) {}
-void DrawSubtractiveBlendedSprite(int, int, int, int, int, int, int, int) {}
 void DrawSpriteRotated(int, int, int, int, int, int, int, int, int, int, int) {}
 void DrawSpriteScaled(int, int, int, int, int, int, int, int, int, int, int, int) {}
 void DrawSpriteRotozoom(int, int, int, int, int, int, int, int, int, int, int, int) {}

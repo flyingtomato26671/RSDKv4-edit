@@ -1,0 +1,188 @@
+// DS renderer: sprites, rectangles and the object draw lists, into the page render.cpp is drawing (g_ndsDst).
+// Ported from upstream's software renderer (RSDKv4/Drawing.cpp): same clipping, same palette per line (gfxLineBuffer),
+// colour index 0 transparent; the pixels are DS 15-bit colours (the palettes already hold them, Palette.hpp).
+#include "RetroEngine.hpp"
+#include "ndsdraw.hpp"
+
+// ---- clip a logic-screen rectangle to the window; on return (x, y) are window coordinates
+static inline bool ClipToWindow(int &x, int &y, int &w, int &h, int &sx, int &sy)
+{
+    if (x < WIN_X0) {
+        sx += WIN_X0 - x;
+        w -= WIN_X0 - x;
+        x = WIN_X0;
+    }
+    if (x + w > WIN_X0 + WIN_W)
+        w = WIN_X0 + WIN_W - x;
+    if (y < WIN_Y0) {
+        sy += WIN_Y0 - y;
+        h -= WIN_Y0 - y;
+        y = WIN_Y0;
+    }
+    if (y + h > WIN_Y0 + WIN_H)
+        h = WIN_Y0 + WIN_H - y;
+    return w > 0 && h > 0;
+}
+
+enum { INK_PLAIN, INK_50, INK_ALPHA_, INK_ADD_, INK_SUB_ };
+
+// One routine for every sprite draw: flip = FLIP_* of the sheet region, ink picks how a pixel meets the one below.
+static void SpriteBlit(int XPos, int YPos, int width, int height, int sprX, int sprY, int flip, int sheetID, int ink, int alpha)
+{
+    if (!g_ndsDst || sheetID < 0 || sheetID >= SURFACE_COUNT)
+        return;
+    const GFXSurface *surface = &gfxSurface[sheetID];
+    const int W = width, H = height, X = XPos, Y = YPos;
+    // visible part of the sprite, in sprite-local coordinates
+    int x = XPos, y = YPos, w = width, h = height, ox = 0, oy = 0;
+    if (!ClipToWindow(x, y, w, h, ox, oy))
+        return;
+    const bool fx = flip == FLIP_X || flip == FLIP_XY;
+    const bool fy = flip == FLIP_Y || flip == FLIP_XY;
+    const byte *sheet = &graphicData[surface->dataPosition];
+    for (int r = 0; r < h; ++r) {
+        const int ly = y + r; // logic line
+        const uint16_t *pal = fullPalette[gfxLineBuffer[ly] & 7];
+        const int sy = sprY + (fy ? H - 1 - (oy + r) : oy + r);
+        const byte *src = &sheet[sy * surface->width + sprX];
+        uint16_t *dst   = g_ndsDst + (ly - WIN_Y0) * 256 + (x - WIN_X0);
+        for (int c = 0; c < w; ++c) {
+            const byte p = src[fx ? W - 1 - (ox + c) : ox + c];
+            if (!p)
+                continue;
+            const uint32_t col = pal[p];
+            switch (ink) {
+                case INK_PLAIN: dst[c] = (uint16_t)col; break;
+                case INK_50: dst[c] = (uint16_t)NdsBlend(col, dst[c], 128); break;
+                case INK_ALPHA_: dst[c] = (uint16_t)NdsBlend(col, dst[c], alpha); break;
+                case INK_ADD_: {
+                    uint32_t d = dst[c];
+                    int r5 = (d & 31) + ((col & 31) * alpha >> 8), g5 = ((d >> 5) & 31) + (((col >> 5) & 31) * alpha >> 8),
+                        b5 = ((d >> 10) & 31) + (((col >> 10) & 31) * alpha >> 8);
+                    dst[c] = (uint16_t)(0x8000 | ((b5 > 31 ? 31 : b5) << 10) | ((g5 > 31 ? 31 : g5) << 5) | (r5 > 31 ? 31 : r5));
+                    break;
+                }
+                case INK_SUB_: {
+                    uint32_t d = dst[c];
+                    int r5 = (d & 31) - ((col & 31) * alpha >> 8), g5 = ((d >> 5) & 31) - (((col >> 5) & 31) * alpha >> 8),
+                        b5 = ((d >> 10) & 31) - (((col >> 10) & 31) * alpha >> 8);
+                    dst[c] = (uint16_t)(0x8000 | ((b5 < 0 ? 0 : b5) << 10) | ((g5 < 0 ? 0 : g5) << 5) | (r5 < 0 ? 0 : r5));
+                    break;
+                }
+            }
+        }
+    }
+    (void)X;
+    (void)Y;
+}
+
+void DrawSprite(int XPos, int YPos, int width, int height, int sprX, int sprY, int sheetID)
+{
+    SpriteBlit(XPos, YPos, width, height, sprX, sprY, FLIP_NONE, sheetID, INK_PLAIN, 255);
+}
+void DrawSpriteFlipped(int XPos, int YPos, int width, int height, int sprX, int sprY, int direction, int sheetID)
+{
+    SpriteBlit(XPos, YPos, width, height, sprX, sprY, direction, sheetID, INK_PLAIN, 255);
+}
+void DrawBlendedSprite(int XPos, int YPos, int width, int height, int sprX, int sprY, int sheetID)
+{
+    SpriteBlit(XPos, YPos, width, height, sprX, sprY, FLIP_NONE, sheetID, INK_50, 128);
+}
+void DrawAlphaBlendedSprite(int XPos, int YPos, int width, int height, int sprX, int sprY, int alpha, int sheetID)
+{
+    if (alpha > 0xFF)
+        alpha = 0xFF;
+    SpriteBlit(XPos, YPos, width, height, sprX, sprY, FLIP_NONE, sheetID, alpha == 0xFF ? INK_PLAIN : INK_ALPHA_, alpha);
+}
+void DrawAdditiveBlendedSprite(int XPos, int YPos, int width, int height, int sprX, int sprY, int alpha, int sheetID)
+{
+    if (alpha > 0xFF)
+        alpha = 0xFF;
+    SpriteBlit(XPos, YPos, width, height, sprX, sprY, FLIP_NONE, sheetID, INK_ADD_, alpha);
+}
+void DrawSubtractiveBlendedSprite(int XPos, int YPos, int width, int height, int sprX, int sprY, int alpha, int sheetID)
+{
+    if (alpha > 0xFF)
+        alpha = 0xFF;
+    SpriteBlit(XPos, YPos, width, height, sprX, sprY, FLIP_NONE, sheetID, INK_SUB_, alpha);
+}
+
+// ---- rectangles
+void DrawRectangle(int XPos, int YPos, int width, int height, int R, int G, int B, int A)
+{
+    if (!g_ndsDst)
+        return;
+    if (A > 0xFF)
+        A = 0xFF;
+    int sx = 0, sy = 0;
+    if (A <= 0 || !ClipToWindow(XPos, YPos, width, height, sx, sy))
+        return;
+    const uint32_t clr = PACK_RGB888(R, G, B);
+    for (int r = 0; r < height; ++r) {
+        uint16_t *dst = g_ndsDst + (YPos + r - WIN_Y0) * 256 + (XPos - WIN_X0);
+        if (A == 0xFF)
+            for (int c = 0; c < width; ++c) dst[c] = (uint16_t)clr;
+        else
+            for (int c = 0; c < width; ++c) dst[c] = (uint16_t)NdsBlend(clr, dst[c], A);
+    }
+}
+void DrawTintRectangle(int XPos, int YPos, int width, int height)
+{
+    if (!g_ndsDst)
+        return;
+    int sx = 0, sy = 0;
+    if (!ClipToWindow(XPos, YPos, width, height, sx, sy))
+        return;
+    for (int r = 0; r < height; ++r) {
+        uint16_t *dst = g_ndsDst + (YPos + r - WIN_Y0) * 256 + (XPos - WIN_X0);
+        for (int c = 0; c < width; ++c) { // upstream's tint table: the average of the channels + 6, as grey
+            uint32_t d = dst[c];
+            int v      = ((d & 31) + ((d >> 5) & 31) + ((d >> 10) & 31)) / 3 + 6;
+            if (v > 31)
+                v = 31;
+            dst[c] = (uint16_t)(0x8000 | (v << 10) | (v << 5) | v);
+        }
+    }
+}
+
+// ---- object draw lists (Script.cpp's draw events call the sprite functions above)
+void DrawObjectList(int Layer)
+{
+    int size = drawListEntries[Layer].listSize;
+    for (int i = 0; i < size; ++i) {
+        objectEntityPos = drawListEntries[Layer].entityRefs[i];
+        int type        = objectEntityList[objectEntityPos].type;
+        if (type) {
+            if (scriptCode[objectScriptList[type].eventDraw.scriptCodePtr] > 0)
+                ProcessScript(objectScriptList[type].eventDraw.scriptCodePtr, objectScriptList[type].eventDraw.jumpTablePtr, EVENT_DRAW);
+        }
+    }
+}
+
+// Animated sprite of an object (rotation styles other than NONE need the rotated draw: a later step)
+void DrawObjectAnimation(void *objScr, void *ent, int XPos, int YPos)
+{
+    ObjectScript *objectScript = (ObjectScript *)objScr;
+    Entity *entity             = (Entity *)ent;
+    SpriteAnimation *sprAnim   = &animationList[objectScript->animFile->aniListOffset + entity->animation];
+    SpriteFrame *frame         = &animFrames[sprAnim->frameListOffset + entity->frame];
+    switch (entity->direction) {
+        case FLIP_NONE:
+            DrawSpriteFlipped(frame->pivotX + XPos, frame->pivotY + YPos, frame->width, frame->height, frame->sprX, frame->sprY, FLIP_NONE,
+                              frame->sheetID);
+            break;
+        case FLIP_X:
+            DrawSpriteFlipped(XPos - frame->width - frame->pivotX, frame->pivotY + YPos, frame->width, frame->height, frame->sprX, frame->sprY,
+                              FLIP_X, frame->sheetID);
+            break;
+        case FLIP_Y:
+            DrawSpriteFlipped(frame->pivotX + XPos, YPos - frame->height - frame->pivotY, frame->width, frame->height, frame->sprX, frame->sprY,
+                              FLIP_Y, frame->sheetID);
+            break;
+        case FLIP_XY:
+            DrawSpriteFlipped(XPos - frame->width - frame->pivotX, YPos - frame->height - frame->pivotY, frame->width, frame->height,
+                              frame->sprX, frame->sprY, FLIP_XY, frame->sheetID);
+            break;
+        default: break;
+    }
+}
