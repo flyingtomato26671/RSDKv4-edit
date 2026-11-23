@@ -73,8 +73,13 @@ uint32_t PS1HblanksSince(uint32_t) { return 0; }
 void PS1MenuOpen(int) {}
 void PS1MenuFrame() {}
 void PS1MenuResetGame() {}
-void PS1PauseOpen() {}
-void PS1PauseFrame() {}
+// Minimal pause: the engine enters ENGINE_INITPAUSE on a script's Start; Start again resumes (the real menu comes later).
+void PS1PauseOpen() { Engine.gameMode = ENGINE_PS1PAUSE; }
+void PS1PauseFrame()
+{
+    if (inputDevice[INPUT_START].press)
+        Engine.gameMode = ENGINE_EXITPAUSE;
+}
 
 // ---- save data (real: save.cpp, FAT on the SD card)
 int saveRAM[SAVEDATA_SIZE];

@@ -15,7 +15,9 @@ int NdsEngineMode(void);
 void NdsEngineFrame(void);
 void NdsEngineInfo(char *buf, int n);
 const char *NdsLogLine(int back);
-const uint16_t *NdsFrameBuffer(void);
+void NdsSetBackBuffer(uint16_t *p);
+int NdsFrameDrawn(void);
+uint32_t NdsRenderTicks(void);
 }
 
 static volatile unsigned g_vbl = 0;
@@ -29,9 +31,14 @@ static void waitForever(void)
 int main(void)
 {
     videoSetMode(MODE_5_2D);
-    vramSetBankA(VRAM_A_MAIN_BG);
-    bgInit(3, BgType_Bmp16, BgSize_B16_256x256, 0, 0);
-    uint16_t *fb = (uint16_t *)bgGetGfxPtr(3);
+    // Two 256x256 16-bit bitmap pages (the window uses the top 192 lines): VRAM A = page 0, VRAM B = page 1.
+    // The engine draws straight into the back page; at vblank the pages swap (no copy, no tearing).
+    vramSetBankA(VRAM_A_MAIN_BG_0x06000000);
+    vramSetBankB(VRAM_B_MAIN_BG_0x06020000);
+    int bg = bgInit(3, BgType_Bmp16, BgSize_B16_256x256, 0, 0);
+    uint16_t *page[2] = { (uint16_t *)0x06000000, (uint16_t *)0x06020000 };
+    int front = 0;
+    NdsSetBackBuffer(page[1]);
     videoSetModeSub(MODE_0_2D);
     vramSetBankC(VRAM_C_SUB_BG);
     consoleInit(NULL, 0, BgType_Text4bpp, BgSize_T_256x256, 4, 0, false, true);
@@ -77,7 +84,7 @@ int main(void)
             printf("frames:%u\n", frame);
             printf("vblanks/frame avg x16:%u max:%u\n", sumV, maxV);
             printf("(16 = full speed, per 16 frames)\n");
-            printf("ticks last:%lu max:%lu\n", (unsigned long)lastT, (unsigned long)maxT);
+            printf("ticks last:%lu max:%lu\ndraw ticks:%lu\n", (unsigned long)lastT, (unsigned long)maxT, (unsigned long)NdsRenderTicks());
             char info[200];
             NdsEngineInfo(info, sizeof(info));
             printf("%s\nlog:\n", info);
@@ -86,6 +93,10 @@ int main(void)
             maxV = 0;
         }
         swiWaitForVBlank();
-        dmaCopy(NdsFrameBuffer(), fb, 256 * 192 * 2); // the 1:1 window
+        if (NdsFrameDrawn()) { // show the page just drawn, draw the next frame into the other one
+            front ^= 1;
+            bgSetMapBase(bg, front ? 8 : 0); // bitmap base in 16 KB units: page 1 = 128 KB
+            NdsSetBackBuffer(page[front ^ 1]);
+        }
     }
 }
