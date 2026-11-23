@@ -13,6 +13,7 @@ void NdsEngineInit(void);
 int NdsEngineReady(void);
 int NdsEngineMode(void);
 void NdsEngineFrame(void);
+void NdsEngineInfo(char *buf, int n);
 }
 
 static volatile unsigned g_vbl = 0;
@@ -79,6 +80,9 @@ int main(void)
             printf("vblanks/frame avg x16:%u max:%u\n", sumV, maxV);
             printf("(16 = full speed, per 16 frames)\n");
             printf("ticks last:%lu max:%lu\n", (unsigned long)lastT, (unsigned long)maxT);
+            char info[160];
+            NdsEngineInfo(info, sizeof(info));
+            printf("%s\n", info);
             sumV = 0;
             maxV = 0;
         }
