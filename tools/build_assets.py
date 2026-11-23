@@ -113,8 +113,9 @@ def main():
     shutil.rmtree(iso, ignore_errors=True)
     print('[1 data] copy the data the console reads -> %s' % os.path.relpath(iso, REPO), flush=True)
     if a.ds:  # the DS keeps the originals (graphics, sound) for its own converters; only the metadata is dropped
-        copy_tree(sdata, data, ['.DS_Store'])
-        copy_tree(sbc, os.path.join(iso, 'Bytecode'), ['.DS_Store'])
+        # Egg Gauntlet (ZoneM) does not fit the engine's arrays (the PS1 port drops it too, user decision 2026-09-25)
+        copy_tree(sdata, data, ['.DS_Store', 'Stages/ZoneM/'])
+        copy_tree(sbc, os.path.join(iso, 'Bytecode'), ['ZoneM.bin', '.DS_Store'])
     else:
         copy_tree(sdata, data, ['*.gif', '*.wav', '*.ogg', '.DS_Store', 'Game/Menu/', 'Game/Models/', 'Stages/ZoneM/'])
         copy_tree(sbc, os.path.join(iso, 'Bytecode'), ['ZoneM.bin', '.DS_Store'])
