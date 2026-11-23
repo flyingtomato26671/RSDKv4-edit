@@ -117,9 +117,16 @@ int main(int argc, char **argv)
     if (players.empty())
         players.push_back(0);
     std::string out = argv[2];
+    for (char &ch : out)
+        if (ch == '\\') ch = '/'; // Windows paths
     char cwd[0x400];
-    if (out[0] != '/' && getcwd(cwd, sizeof(cwd)))
-        out = std::string(cwd) + "/" + out;
+    bool absolute = out[0] == '/' || (out.size() > 1 && out[1] == ':'); // "/x" or "C:/x"
+    if (!absolute && getcwd(cwd, sizeof(cwd))) {
+        std::string base = cwd;
+        for (char &ch : base)
+            if (ch == '\\') ch = '/';
+        out = base + "/" + out;
+    }
     for (size_t i = 1; i <= out.size(); ++i) // mkdir -p
         if (i == out.size() || out[i] == '/')
             MKDIR(out.substr(0, i).c_str());
