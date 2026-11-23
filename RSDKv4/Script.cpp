@@ -1612,7 +1612,7 @@ int jumpTableStackPos = 0;
 int functionStackPos  = 0;
 int foreachStackPos   = 0;
 
-#if !(RETRO_PLATFORM == RETRO_PS1 && !defined(RETRO_PS1_HOST_TOOL)) // PS1: in the scratchpad (Script.hpp)
+#if !(RETRO_PLATFORM == RETRO_PS1 && !defined(RETRO_PS1_HOST_TOOL) && !defined(RETRO_NDS)) // PS1: in the scratchpad (Script.hpp)
 ScriptEngine scriptEng = ScriptEngine();
 #endif
 #if RETRO_PLATFORM == RETRO_PS1

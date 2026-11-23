@@ -100,7 +100,7 @@ extern int jumpTableStackPos;
 extern int functionStackPos;
 extern int foreachStackPos;
 
-#if RETRO_PLATFORM == RETRO_PS1 && !defined(RETRO_PS1_HOST_TOOL)
+#if RETRO_PLATFORM == RETRO_PS1 && !defined(RETRO_PS1_HOST_TOOL) && !defined(RETRO_NDS) // DS: a normal global (a DTCM placement can come later)
 // PS1: the VM's hot state (operands, temps, array positions, check result: 136 B) lives in the 1 KB scratchpad
 // (0x1F800000, single-cycle; RAM loads cost ~5-7 cycles without a data cache), at its end: 0x1F800378-0x1F8003FF.
 // The Sonic CD floor renderer's vertex rows use the first 960 B (ps1/render.cpp): Sonic 2 has no 3D floor layer.

@@ -1,12 +1,24 @@
-// Step 1: minimal ARM9 app. Shows the 256x192 window the game will use (1:1, cropped from the 320x240 logic
-// screen) on the main screen, a status console on the sub screen, and reports FAT and pad state.
+// Step 2: boots the engine core (with the stubs in stubs.cpp) from the SD card's /rsdkv4 folder and runs frames.
+// Main screen: the 256x192 1:1 window test card (the renderer replaces it). Sub screen: status console.
 #include <nds.h>
 #include <fat.h>
 #include <filesystem.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <unistd.h>
 
-extern "C" uint16_t NdsPollInput(void);
+extern "C" {
+uint16_t NdsPollInput(void);
+void NdsEngineInit(void);
+int NdsEngineReady(void);
+int NdsEngineMode(void);
+void NdsEngineFrame(void);
+}
+
+static void waitForever(void)
+{
+    while (1) swiWaitForVBlank();
+}
 
 int main(void)
 {
@@ -14,26 +26,40 @@ int main(void)
     vramSetBankA(VRAM_A_MAIN_BG);
     bgInit(3, BgType_Bmp16, BgSize_B16_256x256, 0, 0);
     uint16_t *fb = (uint16_t *)bgGetGfxPtr(3);
+    for (int y = 0; y < 192; y++)
+        for (int x = 0; x < 256; x++)
+            fb[y * 256 + x] = (x == 0 || y == 0 || x == 255 || y == 191) ? ARGB16(1, 31, 31, 31) : ARGB16(1, 2, 4, 12);
 
     videoSetModeSub(MODE_0_2D);
     vramSetBankC(VRAM_C_SUB_BG);
     consoleInit(NULL, 0, BgType_Text4bpp, BgSize_T_256x256, 4, 0, false, true);
+    printf("RSDKv4 DS (step 2)\n");
 
-    bool fat = fatInitDefault();
-    bool nfs = nitroFSInit(NULL);
+    if (!fatInitDefault()) {
+        printf("FAT init failed: no SD card.\n");
+        waitForever();
+    }
+    // Data lives in /rsdkv4 (Data/ and Bytecode/ extracted from your Data.rsdk), or in the SD root.
+    if (chdir("/rsdkv4") != 0)
+        chdir("/");
+    FILE *f = fopen("Data/Game/GameConfig.bin", "rb");
+    if (!f) {
+        printf("Data/Game/GameConfig.bin\nnot found on the SD card.\nPut the extracted Data/ and\nBytecode/ in /rsdkv4/\n");
+        waitForever();
+    }
+    fclose(f);
+
+    printf("data found, Engine.Init...\n");
+    NdsEngineInit();
+    printf("init done: ready=%d mode=%d\n", NdsEngineReady(), NdsEngineMode());
 
     unsigned frame = 0;
     while (1) {
-        uint16_t pad = NdsPollInput();
-        // 256x192 test card: border + moving block, so the 1:1 window and the pad are visible
-        for (int y = 0; y < 192; y++)
-            for (int x = 0; x < 256; x++) {
-                bool edge = x == 0 || y == 0 || x == 255 || y == 191;
-                bool blk  = (unsigned)(x - (int)(frame % 200)) < 32u && y > 80 && y < 112;
-                fb[y * 256 + x] = edge ? ARGB16(1, 31, 31, 31) : blk ? ARGB16(1, 31, 8, 0) : ARGB16(1, 2, 4, 12);
-            }
-        consoleClear();
-        printf("RSDKv4 DS (step 1)\nfat:%d nitrofs:%d\npad:%04x frame:%u\n", fat, nfs, pad, frame);
+        NdsEngineFrame();
+        if ((frame & 15) == 0) {
+            consoleClear();
+            printf("RSDKv4 DS (step 2)\nready=%d mode=%d\npad:%04x frame:%u\n", NdsEngineReady(), NdsEngineMode(), NdsPollInput(), frame);
+        }
         swiWaitForVBlank();
         frame++;
     }
