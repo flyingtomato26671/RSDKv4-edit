@@ -15,6 +15,9 @@ int NdsEngineMode(void);
 void NdsEngineFrame(void);
 }
 
+static volatile unsigned g_vbl = 0;
+static void vblankCount(void) { g_vbl = g_vbl + 1; }
+
 static void waitForever(void)
 {
     while (1) swiWaitForVBlank();
@@ -53,27 +56,32 @@ int main(void)
     NdsEngineInit();
     printf("init done: ready=%d mode=%d\n", NdsEngineReady(), NdsEngineMode());
 
-    // Timing: ARM9 ticks at the 33.51 MHz bus clock (cpuStartTiming); a DS frame is 559,000 ticks (59.83 Hz).
+    // Timing two ways: vblanks elapsed during RunFrame (an IRQ counter: 1 = full speed) and raw ARM9 timer ticks.
+    irqSet(IRQ_VBLANK, vblankCount);
+    irqEnable(IRQ_VBLANK);
     cpuStartTiming(0);
-    unsigned frame = 0, vbl = 0;
-    uint32_t sum = 0, mx = 0, last = 0;
+    unsigned frame = 0, sumV = 0, maxV = 0;
+    uint32_t lastT = 0, maxT = 0;
     while (1) {
+        unsigned v0 = g_vbl;
         uint32_t t0 = cpuGetTiming();
         NdsEngineFrame();
-        last = cpuGetTiming() - t0;
-        sum += last;
-        if (last > mx) mx = last;
+        lastT = cpuGetTiming() - t0;
+        unsigned dv = g_vbl - v0;
+        sumV += dv;
+        if (dv > maxV) maxV = dv;
+        if (lastT > maxT) maxT = lastT;
         frame++;
         if ((frame & 15) == 0) {
             consoleClear();
             printf("RSDKv4 DS (step 2)\nready=%d mode=%d pad:%04x\n", NdsEngineReady(), NdsEngineMode(), NdsPollInput());
             printf("frames:%u\n", frame);
-            printf("RunFrame ms avg:%lu last:%lu max:%lu\n", (unsigned long)(sum / 16 / 33514), (unsigned long)(last / 33514), (unsigned long)(mx / 33514));
-            printf("(16.7 ms = full speed)\n");
-            sum = 0;
-            mx  = 0;
+            printf("vblanks/frame avg x16:%u max:%u\n", sumV, maxV);
+            printf("(16 = full speed, per 16 frames)\n");
+            printf("ticks last:%lu max:%lu\n", (unsigned long)lastT, (unsigned long)maxT);
+            sumV = 0;
+            maxV = 0;
         }
         swiWaitForVBlank();
-        vbl++;
     }
 }
