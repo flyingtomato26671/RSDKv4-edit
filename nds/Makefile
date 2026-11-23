@@ -12,7 +12,7 @@ GAME_AUTHOR   := RSDKv4-DS port
 SOURCES      := source
 INCLUDEDIRS  := ../RSDKv4 ../RSDKv4/NativeObjects gen
 DEFINES      := -DRETRO_NDS -DRETRO_USE_MOD_LOADER=0 -DRETRO_USE_NETWORKING=0
-LIBS         := -lfilesystem -lfat -lnds9
-LIBDIRS      := $(BLOCKSDS)/libs/libnds $(BLOCKSDS)/libs/libfat
+LIBS         := -lnds9
+LIBDIRS      := $(BLOCKSDS)/libs/libnds
 
 include $(BLOCKSDS)/sys/default_makefiles/rom_arm9/Makefile
