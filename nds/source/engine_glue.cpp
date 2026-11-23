@@ -4,6 +4,10 @@
 extern "C" void NdsEngineInit(void)
 {
     memset(&scriptEng, 0, sizeof(scriptEng));
+    // "No start stage requested" is 0xFF (Userdata.cpp's ini defaults; PS1 reaches it through InitUserdata): the
+    // fields start at -1, which Engine.Init would read as a stage request (list -1 / stage -1 / player -1).
+    Engine.startList = Engine.startStage = Engine.startPlayer = Engine.startSave = 0xFF;
+    Engine.startList_Game = Engine.startStage_Game = 0xFF;
     Engine.Init(); // GameConfig, global scripts, first stage (relative paths: the app has chdir'd to the data folder)
 }
 extern "C" int NdsEngineReady(void) { return Engine.initialised ? 1 : 0; }
