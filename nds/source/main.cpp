@@ -15,6 +15,7 @@ int NdsEngineMode(void);
 void NdsEngineFrame(void);
 void NdsEngineInfo(char *buf, int n);
 const char *NdsLogLine(int back);
+const uint16_t *NdsFrameBuffer(void);
 }
 
 static volatile unsigned g_vbl = 0;
@@ -31,10 +32,6 @@ int main(void)
     vramSetBankA(VRAM_A_MAIN_BG);
     bgInit(3, BgType_Bmp16, BgSize_B16_256x256, 0, 0);
     uint16_t *fb = (uint16_t *)bgGetGfxPtr(3);
-    for (int y = 0; y < 192; y++)
-        for (int x = 0; x < 256; x++)
-            fb[y * 256 + x] = (x == 0 || y == 0 || x == 255 || y == 191) ? ARGB16(1, 31, 31, 31) : ARGB16(1, 2, 4, 12);
-
     videoSetModeSub(MODE_0_2D);
     vramSetBankC(VRAM_C_SUB_BG);
     consoleInit(NULL, 0, BgType_Text4bpp, BgSize_T_256x256, 4, 0, false, true);
@@ -89,5 +86,6 @@ int main(void)
             maxV = 0;
         }
         swiWaitForVBlank();
+        dmaCopy(NdsFrameBuffer(), fb, 256 * 192 * 2); // the 1:1 window
     }
 }

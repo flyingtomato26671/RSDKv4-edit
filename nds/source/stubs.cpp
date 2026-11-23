@@ -11,10 +11,8 @@ DrawListEntry drawListEntries[DRAWLAYER_COUNT];
 volatile uint32_t g_ps1AtlasLoads = 0, g_ps1SurfaceGen = 0, g_ps1TileInputGen = 0;
 int InitRenderDevice() { return 1; }
 void ResetRenderStates() {}
-void ClearScreen(byte) {}
 void FlipScreen() {}
 void RenderScene() {}
-void DrawStageGFX() {}
 void DrawObjectList(int) {}
 void DrawObjectAnimation(void *, void *, int, int) {}
 void DrawDebugOverlays() {}
@@ -40,7 +38,6 @@ void PS1Copy16x16Tile(int, int) {}
 void PS1LoadBGStrips(const char *, int) {}
 void PS1PaletteLinesChanged() {}
 void PS1TileChanged(int) {}
-bool PS1TileSetLoad(const char *, uint8_t *) { return true; }
 
 // ---- audio (real: audio.cpp)
 int masterVolume = 100, bgmVolume = 100, sfxVolume = 100;
