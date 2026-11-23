@@ -23,6 +23,12 @@
 #include <string>
 #include <vector>
 #include <sys/stat.h>
+#ifdef _WIN32
+#include <direct.h>
+#define MKDIR(p) _mkdir(p)
+#else
+#define MKDIR(p) mkdir(p, 0755)
+#endif
 #include <unistd.h>
 
 #include "RetroEngine.hpp"
@@ -116,7 +122,7 @@ int main(int argc, char **argv)
         out = std::string(cwd) + "/" + out;
     for (size_t i = 1; i <= out.size(); ++i) // mkdir -p
         if (i == out.size() || out[i] == '/')
-            mkdir(out.substr(0, i).c_str(), 0755);
+            MKDIR(out.substr(0, i).c_str());
     if (chdir(argv[1])) {
         perror(argv[1]);
         return 1;
