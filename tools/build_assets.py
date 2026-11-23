@@ -38,10 +38,10 @@ def find_tool(env, name):
     return path
 
 
-def check_tools(need_disc=False):
+def check_tools(need_disc=False, ds=False):
     """The external tools (as environment variables for the converters); exits with a list if any is missing."""
     tools, missing = {}, []
-    wanted = [('PSXAVENC', 'psxavenc'), ('FFMPEG', 'ffmpeg')]
+    wanted = [] if ds else [('PSXAVENC', 'psxavenc'), ('FFMPEG', 'ffmpeg')]
     if need_disc:
         wanted.append(('MKPSXISO', 'mkpsxiso'))
     for env, name in wanted:
@@ -51,7 +51,7 @@ def check_tools(need_disc=False):
     (tools.__setitem__('CXX', cxx) if cxx else missing.append('a C++17 compiler: clang++ or g++ (or set CXX)'))
     if not shutil.which('make'):
         missing.append('make')
-    for mod, pkg in (('PIL', 'Pillow'), ('numpy', 'numpy')):
+    for mod, pkg in ((('numpy', 'numpy'),) if ds else (('PIL', 'Pillow'), ('numpy', 'numpy'))):
         if importlib.util.find_spec(mod) is None:
             missing.append('Python package %s (pip install %s)' % (pkg, pkg))
     if missing:
@@ -93,10 +93,12 @@ def main():
     ap.add_argument('--out', default=REPO, help='where build/iso and build/manifest go (default: the repo)')
     ap.add_argument('--order', help='the load order file to write (default: tools/disc/load_order.txt)')
     ap.add_argument('--disc-tools', action='store_true', help='also require mkpsxiso (the disc step that follows)')
+    ap.add_argument('--ds', action='store_true', help='Nintendo DS data (nds/): steps 1-2 only (extract, script edits, '
+                    'manifest tool -> Scripts.ps1 / 128x128Tiles.ps1 / CollisionMasks.ps1); the output tree is OUT/build/iso')
     ap.add_argument('--game', choices=('1', '2'), default='2', help='2 = Sonic 2 (default), 1 = Sonic 1 (docs/37)')
     a = ap.parse_args()
     s1 = a.game == '1'
-    tools = check_tools(a.disc_tools)
+    tools = check_tools(a.disc_tools, a.ds)
     env = dict(os.environ, **tools)
     out = os.path.abspath(a.out)
     iso, mdir = os.path.join(out, 'build', 'iso'), os.path.join(out, 'build', 'manifest')
@@ -110,8 +112,12 @@ def main():
     sdata, sbc = os.path.join(src, 'Data'), os.path.join(src, 'Bytecode')
     shutil.rmtree(iso, ignore_errors=True)
     print('[1 data] copy the data the console reads -> %s' % os.path.relpath(iso, REPO), flush=True)
-    copy_tree(sdata, data, ['*.gif', '*.wav', '*.ogg', '.DS_Store', 'Game/Menu/', 'Game/Models/', 'Stages/ZoneM/'])
-    copy_tree(sbc, os.path.join(iso, 'Bytecode'), ['ZoneM.bin', '.DS_Store'])
+    if a.ds:  # the DS keeps the originals (graphics, sound) for its own converters; only the metadata is dropped
+        copy_tree(sdata, data, ['.DS_Store'])
+        copy_tree(sbc, os.path.join(iso, 'Bytecode'), ['.DS_Store'])
+    else:
+        copy_tree(sdata, data, ['*.gif', '*.wav', '*.ogg', '.DS_Store', 'Game/Menu/', 'Game/Models/', 'Stages/ZoneM/'])
+        copy_tree(sbc, os.path.join(iso, 'Bytecode'), ['ZoneM.bin', '.DS_Store'])
     bc = os.path.join(iso, 'Bytecode')
     run('1 scripts', [PY, os.path.join(HERE, 'scripts', 'patch_bytecode.py'), bc, '--game', a.game], env=env)
     run('1 scripts', [PY, os.path.join(HERE, 'scripts', 'scene3d_stages.py'), bc, data], env=env)
@@ -122,12 +128,18 @@ def main():
     manifest_tool = os.path.join(HERE, 'rsdkmanifest', 'rsdkmanifest-s1' if s1 else 'rsdkmanifest')
     shutil.rmtree(mdir, ignore_errors=True)
     os.makedirs(mdir)
-    for suffix, player in VARIANTS:
+    for suffix, player in (VARIANTS[:1] if a.ds else VARIANTS):
         pdir = os.path.join(mdir, 'p%d' % player)
         run('2 manifest', [manifest_tool, iso, pdir, str(player)],
             log=os.path.join(mdir, 'p%d.log' % player), env=env)
+        if a.ds:
+            continue
         run('3 atlas', [PY, os.path.join(HERE, 'atlas', 'build_atlas.py'), sdata, pdir, '--suffix', suffix,
                         '--out', os.path.join(data, 'Sprites', 'Atlas')], log=os.path.join(mdir, 'atlas%s.log' % suffix), env=env)
+    if a.ds:
+        n = sum(len(f) for _, _, f in os.walk(iso))
+        print('DS data: %d files in %s (copy Data/ and Bytecode/ to the SD card, /rsdkv4/)' % (n, iso))
+        return
     run('4 tiles', [PY, os.path.join(HERE, 'tiles', 'convert_tiles.py'), sdata, data], env=env)
     run('5 strips', [PY, os.path.join(HERE, 'bgstrips', 'build_bgstrips.py'), data] + (['--game', '1'] if s1 else []),
         log=os.path.join(mdir, 'bgstrips.log'), env=env)  # Sonic 1: BGS3 (segment maps, 4-bit rows; docs/37 phase 3)
