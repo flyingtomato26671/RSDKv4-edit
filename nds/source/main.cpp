@@ -84,7 +84,7 @@ int main(void)
             char info[200];
             NdsEngineInfo(info, sizeof(info));
             printf("%s\nlog:\n", info);
-            for (int i = 3; i >= 0; i--) printf("%s\n", NdsLogLine(i));
+            for (int i = 2; i >= 0; i--) printf("%s\n", NdsLogLine(i));
             sumV = 0;
             maxV = 0;
         }

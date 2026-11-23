@@ -21,7 +21,7 @@ extern "C" void NdsEngineInfo(char *buf, int n)
 
 // Last engine log lines (PrintLog), newest last.
 #define NDS_LOG_LINES 5
-#define NDS_LOG_W 32
+#define NDS_LOG_W 96
 static char s_log[NDS_LOG_LINES][NDS_LOG_W];
 static int s_logN = 0;
 extern "C" void NdsLogPush(const char *line)
