@@ -53,14 +53,27 @@ int main(void)
     NdsEngineInit();
     printf("init done: ready=%d mode=%d\n", NdsEngineReady(), NdsEngineMode());
 
-    unsigned frame = 0;
+    // Timing: ARM9 ticks at the 33.51 MHz bus clock (cpuStartTiming); a DS frame is 559,000 ticks (59.83 Hz).
+    cpuStartTiming(0);
+    unsigned frame = 0, vbl = 0;
+    uint32_t sum = 0, mx = 0, last = 0;
     while (1) {
+        uint32_t t0 = cpuGetTiming();
         NdsEngineFrame();
+        last = cpuGetTiming() - t0;
+        sum += last;
+        if (last > mx) mx = last;
+        frame++;
         if ((frame & 15) == 0) {
             consoleClear();
-            printf("RSDKv4 DS (step 2)\nready=%d mode=%d\npad:%04x frame:%u\n", NdsEngineReady(), NdsEngineMode(), NdsPollInput(), frame);
+            printf("RSDKv4 DS (step 2)\nready=%d mode=%d pad:%04x\n", NdsEngineReady(), NdsEngineMode(), NdsPollInput());
+            printf("frames:%u\n", frame);
+            printf("RunFrame ms avg:%lu last:%lu max:%lu\n", (unsigned long)(sum / 16 / 33514), (unsigned long)(last / 33514), (unsigned long)(mx / 33514));
+            printf("(16.7 ms = full speed)\n");
+            sum = 0;
+            mx  = 0;
         }
         swiWaitForVBlank();
-        frame++;
+        vbl++;
     }
 }
