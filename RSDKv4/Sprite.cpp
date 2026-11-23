@@ -4,7 +4,7 @@
 extern volatile uint32_t g_ps1SurfaceGen; // ps1/render.cpp: re-binds sheets to the atlas when it changes
 #endif
 
-#if RETRO_PLATFORM != RETRO_PS1 // PS1: images are converted at build time (tools/atlas, tools/tiles); no GIF decoder
+#if RETRO_PLATFORM != RETRO_PS1 || defined(RETRO_NDS) // PS1: images are converted at build time (tools/atlas, tools/tiles); no GIF decoder. The DS decodes the tile GIF at the stage load (nds/source/render.cpp)
 struct GifDecoder {
     int depth;
     int clearCode;

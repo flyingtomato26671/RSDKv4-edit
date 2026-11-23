@@ -8,6 +8,7 @@
 #define WIN_X0 32 // logic screen -> window crop
 #define WIN_Y0 24
 
+byte tilesetGFXData[TILESET_SIZE]; // the stage's 16x16 tiles, 8-bit (PS1 keeps them only in VRAM)
 static uint16_t s_fb[WIN_W * WIN_H];
 static uint16_t s_dsPal[PALETTE_COUNT][PALETTE_COLOR_COUNT]; // fullPalette32 -> 15-bit with the alpha bit
 static int s_clearIndex = 0;
