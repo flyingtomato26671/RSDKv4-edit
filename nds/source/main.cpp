@@ -80,7 +80,7 @@ int main(void)
             printf("vblanks/frame avg x16:%u max:%u\n", sumV, maxV);
             printf("(16 = full speed, per 16 frames)\n");
             printf("ticks last:%lu max:%lu\n", (unsigned long)lastT, (unsigned long)maxT);
-            char info[160];
+            char info[200];
             NdsEngineInfo(info, sizeof(info));
             printf("%s\n", info);
             sumV = 0;

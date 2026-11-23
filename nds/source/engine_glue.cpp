@@ -10,9 +10,11 @@ extern "C" int NdsEngineReady(void) { return Engine.initialised ? 1 : 0; }
 extern "C" int NdsEngineMode(void) { return Engine.gameMode; }
 extern "C" void NdsEngineFrame(void) { Engine.RunFrame(); }
 
-// One status line pair for the sub screen: where the engine is.
+// Status lines for the sub screen: where the engine is.
 extern "C" void NdsEngineInfo(char *buf, int n)
 {
-    snprintf(buf, n, "stageMode:%d list:%d pos:%d\nfolder:%.18s\nframeCtr:%d ents0:%d", stageMode, activeStageList, stageListPosition,
-             currentStageFolder, frameCounter, objectEntityList[0].type);
+    int k = snprintf(buf, n, "mode:%d list:%d pos:%d fr:%d\nfolder:[%.14s]\ncnt:%d,%d,%d,%d gv:%d\n", stageMode, activeStageList,
+                     stageListPosition, frameCounter, currentStageFolder, stageListCount[0], stageListCount[1], stageListCount[2],
+                     stageListCount[3], globalVariablesCount);
+    snprintf(buf + k, n - k, "s00:[%.10s][%.4s] pl:%d", stageList[0][0].folder, stageList[0][0].id, playerListPos);
 }
