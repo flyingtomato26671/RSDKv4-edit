@@ -20,7 +20,6 @@ void FadeScreen_Create(void *) {}
 void FadeScreen_Main(void *) {}
 bool PS1AtlasLoad(const char *, int) { return true; }
 void PS1BuildTileVisuals() {}
-void PS1Copy16x16Tile(int, int) {}
 void PS1LoadBGStrips(const char *, int) {}
 void PS1PaletteLinesChanged() {}
 void PS1TileChanged(int) {}
