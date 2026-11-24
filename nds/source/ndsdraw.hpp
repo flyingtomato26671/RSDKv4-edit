@@ -31,3 +31,12 @@ static inline bool NdsFlickerOn(int alpha)
         return (g_ndsFlick & 1) == 0;
     return g_ndsFlick % 3 == 0;
 }
+
+// Hardware sprites (oam.cpp): the engine's sprite draws become OAM entries; false = draw it in software
+typedef unsigned char byte_t_;
+bool NdsOamSprite(int X, int Y, int W, int H, int sprX, int sprY, int flip, int sheetID, const unsigned char *sheet, int stride);
+void NdsOamBegin();
+void NdsOamEnd(int priority);
+void NdsOamFlush();
+extern uint16_t g_ndsOam[128 * 4];
+extern volatile uint32_t g_ndsOamFallback;

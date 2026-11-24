@@ -126,6 +126,7 @@ bool PS1TileSetLoad(const char *folder, uint8_t *pal768)
         if (tilesetGFXData[i] == transparent)
             tilesetGFXData[i] = 0;
     CloseFile();
+    NdsOamFlush();
     HwReset(); // new tileset: the hardware tile pool starts over
     return true;
 }
@@ -698,6 +699,7 @@ void DrawStageGFX()
         }
     }
     g_ndsFlick++;
+    NdsOamBegin();
     g_ndsTkClear = Ticks() - t0;
 
     if (tLayerMidPoint < 3) {
@@ -739,6 +741,7 @@ void DrawStageGFX()
             DrawRectangle(0, 0, SCREEN_XSIZE, SCREEN_YSIZE, fadeR, fadeG, fadeB, fadeA);
     }
 
+    NdsOamEnd(g_ndsHw.bg2Front ? 1 : 0);
     g_ndsHw.hw      = s_hwMode;
     g_ndsHw.nLayers = s_hwLayers;
     g_ndsHw.buf     = s_hwBuf;

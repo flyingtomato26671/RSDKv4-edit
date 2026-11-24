@@ -130,6 +130,12 @@ static void SpriteBlit(int XPos, int YPos, int width, int height, int sprX, int 
     const int W = width, H = height, X = XPos, Y = YPos;
     // visible part of the sprite, in sprite-local coordinates
     int x = XPos, y = YPos, w = width, h = height, ox = 0, oy = 0;
+    if (ink == INK_PLAIN && width > 0 && height > 0) {
+        const byte *sh = &graphicData[surface->dataPosition];
+        if (NdsOamSprite(X - WIN_X0, Y - WIN_Y0, W, H, sprX, sprY, flip, sheetID, sh, surface->width))
+            return;
+        g_ndsOamFallback = g_ndsOamFallback + 1;
+    }
     if (!ClipToWindow(x, y, w, h, ox, oy))
         return;
     const bool fx = flip == FLIP_X || flip == FLIP_XY;

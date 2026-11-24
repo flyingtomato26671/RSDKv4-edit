@@ -58,7 +58,8 @@ static void palCopy(int bank)
 {
     const uint32_t *src = (const uint32_t *)fullPalette[bank];
     volatile uint32_t *dst = (volatile uint32_t *)BG_PALETTE;
-    for (int i = 0; i < 128; i++) dst[i] = src[i];
+    volatile uint32_t *od = (volatile uint32_t *)SPRITE_PALETTE;
+    for (int i = 0; i < 128; i++) dst[i] = od[i] = src[i];
     BG_PALETTE[0] = fullPalette[bank][s_clearIdx]; // entry 0 is the backdrop
 }
 static inline void setVCount(int line)
@@ -126,6 +127,13 @@ static void applyHw(int bitmapBg)
             irqDisable(IRQ_VCOUNT);
     }
     setBrightness(1, h.bright);
+    bgSetPriority(2, h.bg2Front ? 0 : 1);
+    {
+        extern uint16_t g_ndsOam[];
+        volatile uint32_t *o = (volatile uint32_t *)OAM;
+        const uint32_t *q    = (const uint32_t *)g_ndsOam;
+        for (int i = 0; i < 256; i++) o[i] = q[i];
+    }
     bgSetPriority(bitmapBg, h.bg2Front ? 1 : 0); // a front pass on BG2 ties with the bitmap (priority 1) and wins by BG index
 }
 
@@ -244,7 +252,8 @@ static void pickCharacter(int *player, int *debug)
 
 int main(void)
 {
-    videoSetMode(MODE_5_2D);
+    videoSetMode(MODE_5_2D | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT | DISPLAY_SPR_1D_SIZE_64);
+    vramSetBankE(VRAM_E_MAIN_SPRITE); // OBJ tiles 0x06400000, 64 KB (oam.cpp)
     // Main BG VRAM (A+B+C contiguous from 0x06000000): hardware tile maps 0x0000-0x7FFF, tiles 0x10000-0x1FFFF,
     // sprite-layer bitmap pages at 0x20000 and 0x38000 (96 KB each: 256x192 16-bit). The engine draws sprites into the back
     // page; at vblank the pages swap (no copy, no tearing).
