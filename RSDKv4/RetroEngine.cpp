@@ -383,7 +383,13 @@ void RetroEngine::Init()
                         SetGlobalVariableByName("options.vsMode", 0);
 
                         SetGlobalVariableByName("specialStage.nextZone", 0);
+#if defined(RETRO_NDS)
+                        extern int g_ndsStartPlayer; // nds/source/engine_glue.cpp: the character picked on the start screen
+                        SetGlobalVariableByName("stage.player2Enabled", g_ndsStartPlayer == 3);
+                        InitStartingStage(STAGELIST_REGULAR, 0, g_ndsStartPlayer);
+#else
                         InitStartingStage(STAGELIST_REGULAR, 0, 0);
+#endif
                     }
                     else {
                         SetGlobalVariableByName("options.saveSlot", startSave);

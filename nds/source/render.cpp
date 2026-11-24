@@ -340,8 +340,11 @@ struct NdsHwFrame {
     int uniform[3];       // every line has the same x scroll (layer 2, the extended BG, needs it)
     uint32_t *table[3];   // 193 entries: x scroll | y scroll << 16, per logic window line
     uint16_t hofs[3];     // x scroll of line 0
-    int palDirty;
-    uint16_t pal[256];
+    int clearIdx;         // backdrop colour index (palette entry 0 of every bank)
+    int bank0;            // palette bank of window line 0
+    int nSwitch;          // palette bank changes down the screen (water): at most 4
+    int swLine[4];        // window line where the bank changes
+    int swBank[4];
     int bright;           // -16..16 (master brightness, fades to black / white)
 };
 extern "C" NdsHwFrame g_ndsHw;
@@ -595,15 +598,7 @@ static bool HwLayer(int layer, const LayerCtx &c, int buf)
     return true;
 }
 
-static bool HwFrameOk()
-{
-    if (!s_hwReady || s_hwFail)
-        return false;
-    for (int y = 0; y < WIN_H; ++y)
-        if (gfxLineBuffer[WIN_Y0 + y] & 7)
-            return false; // per-line palette banks (water): software frame
-    return true;
-}
+static bool HwFrameOk() { return s_hwReady && !s_hwFail; }
 
 // ---- the engine's drawing interface (the rest stays a stub in stubs.cpp until its step)
 void ClearScreen(byte index) { s_clearIndex = index; }
@@ -750,12 +745,18 @@ void DrawStageGFX()
     if (s_hwMode) {
         s_mapBuf ^= 1;
         g_ndsHwFrames = g_ndsHwFrames + 1;
-        if (s_palVer != g_ps1PalVersion || s_palClear != s_clearIndex) {
-            s_palVer   = g_ps1PalVersion;
-            s_palClear = s_clearIndex;
-            for (int i = 0; i < 256; ++i) g_ndsHw.pal[i] = fullPalette[0][i];
-            g_ndsHw.pal[0] = (uint16_t)bgc;
-            g_ndsHw.palDirty = 1;
+        g_ndsHw.clearIdx = s_clearIndex;
+        g_ndsHw.bank0    = gfxLineBuffer[WIN_Y0] & 7;
+        g_ndsHw.nSwitch  = 0;
+        for (int wy = 1, cur = g_ndsHw.bank0, last = -9; wy < WIN_H && g_ndsHw.nSwitch < 4; ++wy) {
+            const int bk = gfxLineBuffer[WIN_Y0 + wy] & 7;
+            if (bk != cur && wy - last >= 2) { // the water line: the palette is switched in the HBlank before it
+                g_ndsHw.swLine[g_ndsHw.nSwitch] = wy;
+                g_ndsHw.swBank[g_ndsHw.nSwitch] = bk;
+                g_ndsHw.nSwitch++;
+                cur  = bk;
+                last = wy;
+            }
         }
     }
     else

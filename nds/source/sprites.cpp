@@ -278,7 +278,7 @@ void DrawObjectList(int Layer)
                 g_ndsHudNames[n] = 0;
             }
         }
-        if (type) {
+        if (type && !NameHas(typeNames[type], "waterfall")) { // the waterfall overlay costs most of a frame: the animated tiles remain
             if (scriptCode[objectScriptList[type].eventDraw.scriptCodePtr] > 0)
                 ProcessScript(objectScriptList[type].eventDraw.scriptCodePtr, objectScriptList[type].eventDraw.jumpTablePtr, EVENT_DRAW);
         }

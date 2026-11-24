@@ -2,6 +2,7 @@
 // the DS hardware channels (played by the ARM7). SFX are the game's .wav files read at stage load and turned into mono
 // 8 / 16-bit samples in RAM; music is a .dsm file per track (tools/ds/convert_audio.py) streamed from the SD card.
 #include "RetroEngine.hpp"
+#include <malloc.h>
 
 extern "C" {
 void NdsSndInit(void);
@@ -134,15 +135,23 @@ static void FreeSfx(int id)
     sfxList[id].loaded = false;
 }
 
+volatile uint32_t g_ndsSfxBadOpen = 0, g_ndsSfxBadFmt = 0, g_ndsSfxBadMem = 0;
+char g_ndsSfxLastBad[40];
+
+// Reads a .wav into a mono 8-bit signed sample (stereo averaged, rates of 32 kHz and up halved): the DS's RAM is 4 MB, the
+// game's 16-bit 44 kHz effects would not fit with everything else.
 static bool ReadWav(const char *path, int id)
 {
     FileInfo info;
-    if (!LoadFile(path, &info))
+    if (!LoadFile(path, &info)) {
+        g_ndsSfxBadOpen = g_ndsSfxBadOpen + 1;
         return false;
+    }
     byte h[12];
     FileRead(h, 12);
     if (h[0] != 'R' || h[1] != 'I' || h[2] != 'F' || h[3] != 'F') {
         CloseFile();
+        g_ndsSfxBadFmt = g_ndsSfxBadFmt + 1;
         return false;
     }
     int pos = 12, fmtTag = 0, channels = 1, rate = 22050, bits = 16, dataLen = 0, dataPos = 0;
@@ -166,47 +175,57 @@ static bool ReadWav(const char *path, int id)
         }
         pos += 8 + size + (size & 1);
     }
-    if (fmtTag != 1 || !dataLen || channels < 1 || channels > 2 || (bits != 8 && bits != 16)) {
+    if ((fmtTag != 1 && fmtTag != 0xFFFE) || !dataLen || channels < 1 || channels > 2 || (bits != 8 && bits != 16)) {
         CloseFile();
+        g_ndsSfxBadFmt = g_ndsSfxBadFmt + 1;
+        StrCopy(g_ndsSfxLastBad, path + (StrLength(path) > 38 ? StrLength(path) - 38 : 0));
         return false;
     }
-    const int bytesPer = bits / 8, frames = dataLen / (bytesPer * channels);
-    const int outBytes = frames * bytesPer;
-    byte *out          = (byte *)malloc(outBytes + 4);
+    const int bytesPer = bits / 8, frameBytes = bytesPer * channels, frames = dataLen / frameBytes;
+    const int ds       = rate >= 32000 ? 2 : 1; // input frames per output sample
+    const int outN     = frames / ds;
+    int8_t *out        = (int8_t *)malloc(outN + 4);
     if (!out) {
         CloseFile();
+        g_ndsSfxBadMem = g_ndsSfxBadMem + 1;
         return false;
     }
     SetFilePosition(dataPos);
     byte buf[512];
-    int done = 0;
-    while (done < frames) {
-        int n = frames - done;
-        if (n > 512 / (bytesPer * channels))
-            n = 512 / (bytesPer * channels);
-        FileRead(buf, n * bytesPer * channels);
-        for (int i = 0; i < n; ++i) {
-            if (bits == 8) { // unsigned -> signed, stereo averaged
-                int v = buf[i * channels] - 128;
+    int inFrames = 0, o = 0, acc = 0, accN = 0;
+    const int perRead = 512 / frameBytes;
+    while (inFrames < frames && o < outN) {
+        int n = frames - inFrames;
+        if (n > perRead)
+            n = perRead;
+        FileRead(buf, n * frameBytes);
+        for (int i = 0; i < n && o < outN; ++i) {
+            int v; // 16-bit scale
+            if (bits == 8) {
+                v = (buf[i * channels] - 128) << 8;
                 if (channels == 2)
-                    v = (v + buf[i * 2 + 1] - 128) / 2;
-                ((int8_t *)out)[done + i] = (int8_t)v;
+                    v = (v + ((buf[i * 2 + 1] - 128) << 8)) / 2;
             }
             else {
-                int v = (int16_t)(buf[i * 2 * channels] | (buf[i * 2 * channels + 1] << 8));
+                v = (int16_t)(buf[i * frameBytes] | (buf[i * frameBytes + 1] << 8));
                 if (channels == 2)
                     v = (v + (int16_t)(buf[i * 4 + 2] | (buf[i * 4 + 3] << 8))) / 2;
-                ((int16_t *)out)[done + i] = (int16_t)v;
+            }
+            acc += v;
+            if (++accN == ds) {
+                out[o++] = (int8_t)(acc / ds >> 8);
+                acc      = 0;
+                accN     = 0;
             }
         }
-        done += n;
+        inFrames += n;
     }
     CloseFile();
     s_sfx[id].pcm   = out;
-    s_sfx[id].bytes = outBytes;
-    s_sfx[id].rate  = rate;
-    s_sfx[id].is16  = bits == 16;
-    g_ndsSfxBytes   = g_ndsSfxBytes + outBytes;
+    s_sfx[id].bytes = o;
+    s_sfx[id].rate  = rate / ds;
+    s_sfx[id].is16  = false;
+    g_ndsSfxBytes   = g_ndsSfxBytes + o;
     return true;
 }
 
@@ -400,4 +419,11 @@ extern "C" void NdsAudioFrame(void)
     }
     else if (musicStatus == MUSIC_PAUSED)
         NdsMusicUpdate();
+}
+
+// Heap bytes still free (diagnostic for the console)
+extern "C" unsigned NdsHeapFree(void)
+{
+    struct mallinfo mi = mallinfo();
+    return (unsigned)mi.fordblks;
 }

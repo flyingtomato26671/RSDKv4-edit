@@ -1,6 +1,13 @@
 // Engine side of the DS app. Kept apart from main.cpp so libnds headers and RetroEngine.hpp never meet in one file.
 #include "RetroEngine.hpp"
 
+int g_ndsStartPlayer = 0; // 0 Sonic, 1 Tails, 2 Knuckles, 3 Sonic & Tails (stage.playerListPos)
+extern "C" void NdsEngineStart(int player, int debug)
+{
+    g_ndsStartPlayer = player;
+    debugMode        = debug != 0;
+}
+
 extern "C" void NdsEngineInit(void)
 {
     memset(&scriptEng, 0, sizeof(scriptEng));
@@ -8,6 +15,7 @@ extern "C" void NdsEngineInit(void)
     // fields start at -1, which Engine.Init would read as a stage request (list -1 / stage -1 / player -1).
     Engine.startList = Engine.startStage = Engine.startPlayer = Engine.startSave = 0xFF;
     Engine.startList_Game = Engine.startStage_Game = 0xFF;
+    Engine.startSave = 0; // a new game: Emerald Hill 1 with the character picked on the start screen (no title screen)
     Engine.Init(); // GameConfig, global scripts, first stage (relative paths: the app has chdir'd to the data folder)
 }
 extern "C" int NdsEngineReady(void) { return Engine.initialised ? 1 : 0; }
