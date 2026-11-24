@@ -85,8 +85,10 @@ static void SpriteBlit(int XPos, int YPos, int width, int height, int sprX, int 
 {
     if (!g_ndsDst || sheetID < 0 || sheetID >= SURFACE_COUNT)
         return;
-    if (ink != INK_PLAIN) { // no blending: flicker opaque on some frames; subtractive effects are skipped
-        if (ink == INK_SUB_ || !NdsFlickerOn(alpha))
+    if (ink != INK_PLAIN) { // no blending: only the shields flicker; everything else translucent is drawn opaque, subtractive is skipped
+        if (ink == INK_SUB_)
+            return;
+        if (strstr(typeNames[objectEntityList[objectEntityPos].type], "hield") && !NdsFlickerOn(alpha))
             return;
         ink = INK_PLAIN;
     }
