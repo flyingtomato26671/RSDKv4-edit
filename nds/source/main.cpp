@@ -21,14 +21,16 @@ uint32_t NdsRenderTicks(void);
 void NdsHwInit(void);
 struct NdsHwFrame {
     int hw, nLayers, buf;
-    uint16_t vofs[2];
-    int uniform[2];
-    uint32_t *table[2];
+    uint16_t vofs[3];
+    int uniform[3];
+    uint32_t *table[3];
+    uint16_t hofs[3];
     int palDirty;
     uint16_t pal[256];
     int bright;
 };
 extern NdsHwFrame g_ndsHw;
+extern volatile char g_ndsPassInfo[8];
 extern volatile uint32_t g_ndsSwTiles, g_ndsFillCols;
 extern volatile uint32_t g_ndsTkClear, g_ndsTkTiles, g_ndsTkObj;
 extern volatile uint32_t g_ndsHwFrames, g_ndsSwFrames, g_ndsHwTiles, g_ndsHwFail;
@@ -47,7 +49,7 @@ static void applyHw(int bitmapBg)
     for (int i = 0; i < 2; i++) {
         DMA_CR(1 + i) = 0; // stop the previous frame's per-line scroll
         if (h.hw && i < h.nLayers) {
-            // farther layer first: layer 0 = priority 3, layer 1 = priority 2; the sprite bitmap (BG3) is 1
+            // farther layer first: BG0 = priority 3, BG1 = 2, the extended BG2 = 1; the sprite bitmap (BG3) is 0
             *cnt[i] = BG_PRIORITY(3 - i) | BG_COLOR_256 | BG_64x64 | BG_TILE_BASE(4) | BG_MAP_BASE(h.buf * 8 + i * 4);
             *hofs[i] = h.table[i][0] & 0x1FF;
             *vofs[i] = h.vofs[i];
@@ -62,12 +64,20 @@ static void applyHw(int bitmapBg)
         else
             videoBgDisable(i);
     }
+    if (h.hw && h.nLayers > 2) { // the third pass: extended BG (16-bit map entries), whole-layer scroll through the affine origin
+        bgSetMapBase(2, 16 + h.buf * 4);
+        REG_BG2X = (int)h.hofs[2] << 8;
+        REG_BG2Y = (int)h.vofs[2] << 8;
+        videoBgEnable(2);
+    }
+    else
+        videoBgDisable(2);
     if (h.palDirty) {
         for (int i = 0; i < 256; i++) BG_PALETTE[i] = h.pal[i];
         h.palDirty = 0;
     }
     setBrightness(1, h.bright);
-    bgSetPriority(bitmapBg, 1);
+    bgSetPriority(bitmapBg, 0);
 }
 
 static void waitForever(void)
@@ -86,6 +96,10 @@ int main(void)
     vramSetBankB(VRAM_B_MAIN_BG_0x06020000);
     vramSetBankC(VRAM_C_MAIN_BG_0x06040000);
     dmaFillWords(0, (void *)0x06000000, 0x20000); // blank maps and tile 0
+    int bg2 = bgInit(2, BgType_ExRotation, BgSize_ER_512x512, 16, 4); // hardware pass 3: map 0x8000 / 0xA000, tiles 0x10000
+    bgWrapOn(bg2);
+    bgSetPriority(bg2, 1);
+    videoBgDisable(2);
     int bg = bgInit(3, BgType_Bmp16, BgSize_B16_256x256, 8, 0);
     uint16_t *page[2] = { (uint16_t *)0x06020000, (uint16_t *)0x06038000 };
     int front = 0;
@@ -140,6 +154,7 @@ int main(void)
             printf("(16 = full speed, per 16 frames)\n");
             printf("ticks last:%lu max:%lu\ndraw ticks:%lu\n", (unsigned long)lastT, (unsigned long)maxT, (unsigned long)NdsRenderTicks());
             printf("clear:%lu tiles:%lu obj:%lu\n", (unsigned long)g_ndsTkClear, (unsigned long)g_ndsTkTiles, (unsigned long)g_ndsTkObj);
+            printf("passes:%c%c%c%c\n", g_ndsPassInfo[0], g_ndsPassInfo[1], g_ndsPassInfo[2], g_ndsPassInfo[3]);
             printf("swTiles:%lu fillCols:%lu\n", (unsigned long)g_ndsSwTiles, (unsigned long)g_ndsFillCols);
             printf("hw fr:%lu sw fr:%lu tiles:%lu fail:%lu\n", (unsigned long)g_ndsHwFrames, (unsigned long)g_ndsSwFrames,
                    (unsigned long)g_ndsHwTiles, (unsigned long)g_ndsHwFail);

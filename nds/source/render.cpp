@@ -200,7 +200,7 @@ static HOT void DrawHLayerLines(const LayerCtx &c)
         int lx             = LineX(c, ly);
 
         uint16_t *dst = g_ndsDst + wy * 256;
-        int x = 0;
+        int x = 0, dmin = WIN_W, dmax = 0;
         while (x < WIN_W) {
             const int tx = lx & 15;
             int n        = 16 - tx;
@@ -221,6 +221,8 @@ static HOT void DrawHLayerLines(const LayerCtx &c)
             const unsigned v = cts[ti];
             if (((v >> 12) & 0xF) == (unsigned)above) {
                 g_ndsSwTiles = g_ndsSwTiles + 1;
+                if (x < dmin) dmin = x;
+                if (x + n > dmax) dmax = x + n;
                 const int dir = (v >> 10) & 3;
                 const byte *r = &tilesetGFXData[((v & 0x3FF) << 8) + ((dir & 2) ? 15 - tileY16 : tileY16) * 16];
                 uint16_t *d   = dst + x;
@@ -247,6 +249,8 @@ static HOT void DrawHLayerLines(const LayerCtx &c)
             if (lx >= fullW)
                 lx -= fullW;
         }
+        if (dmax > dmin)
+            NdsMarkDirty(dmin, wy, dmax, wy + 1);
     }
 }
 
@@ -327,11 +331,12 @@ static bool PrepareLayer(int layerID, LayerCtx &c)
 
 struct NdsHwFrame {
     int hw;               // 1: BG0/BG1 carry tile layers this frame (else the bitmap holds everything)
-    int nLayers;          // 0..2
+    int nLayers;          // 0..3 (BG0, BG1 text; BG2 extended)
     int buf;              // map buffer to show
-    uint16_t vofs[2];
-    int uniform[2];       // every line has the same x scroll
-    uint32_t *table[2];   // 193 entries: x scroll | y scroll << 16, per logic window line
+    uint16_t vofs[3];
+    int uniform[3];       // every line has the same x scroll (layer 2, the extended BG, needs it)
+    uint32_t *table[3];   // 193 entries: x scroll | y scroll << 16, per logic window line
+    uint16_t hofs[3];     // x scroll of line 0
     int palDirty;
     uint16_t pal[256];
     int bright;           // -16..16 (master brightness, fades to black / white)
@@ -339,7 +344,7 @@ struct NdsHwFrame {
 extern "C" NdsHwFrame g_ndsHw;
 NdsHwFrame g_ndsHw;
 
-static uint32_t s_tbl[2][2][193];
+static uint32_t s_tbl[2][3][193];
 static uint16_t s_q[TILE_COUNT][4]; // hardware map entries of each 16x16 tile's quadrants (0xFFFF = not built yet)
 static uint16_t s_hash[2048];       // 8x8 block hash -> hardware tile + 1
 static int s_next = 1, s_dynNext = HW_STATIC_MAX;
@@ -347,7 +352,7 @@ static bool s_hwReady = false, s_hwFail = false, s_dyn[TILE_COUNT];
 static int s_mapBuf = 0;
 static uint32_t s_mapVer = 1; // bumped whenever map contents could change without the scroll (tileset, tile edits)
 struct MapRec { int r16; int lo, hi; uintptr_t sig; uint32_t ver; };
-static MapRec s_rec[2][2][32]; // per map buffer, layer and 16-px row: the columns already written
+static MapRec s_rec[2][3][32]; // per map buffer, layer and 16-px row: the columns already written
 static uint s_palVer = 0xFFFFFFFF;
 static int s_palClear = -1;
 volatile uint32_t g_ndsHwTiles = 0, g_ndsHwFrames = 0, g_ndsSwFrames = 0, g_ndsHwFail = 0;
@@ -474,6 +479,8 @@ void PS1Copy16x16Tile(int dest, int src)
 
 static inline volatile uint16_t *HwMapEntry(int buf, int layer, int col, int row)
 {
+    if (layer == 2) // the extended BG's map is linear: 64 x 64 entries at 0x8000 / 0xA000
+        return (volatile uint16_t *)(HW_MAP_BASE + 0x8000 + buf * 0x2000) + row * 64 + col;
     return (volatile uint16_t *)(HW_MAP_BASE + buf * 0x4000 + layer * 0x2000)
            + ((row >> 5) * 2 + (col >> 5)) * 1024 + (row & 31) * 32 + (col & 31);
 }
@@ -519,7 +526,7 @@ static void HwFillCols(const LayerCtx &c, int buf, int layer, int r16, int c16a,
     }
 }
 
-static void HwLayer(int layer, const LayerCtx &c, int buf)
+static bool HwLayer(int layer, const LayerCtx &c, int buf)
 {
     const int y0 = c.tileYPos + WIN_Y0;
     const uint32_t vofs = (uint32_t)(y0 & 511);
@@ -533,7 +540,10 @@ static void HwLayer(int layer, const LayerCtx &c, int buf)
         tbl[wy] = (uint32_t)(lx[wy] & 511) | (vofs << 16);
     }
     tbl[WIN_H] = tbl[0];
+    if (layer == 2 && !uniform)
+        return false; // the extended BG scrolls as a whole: this pass stays in software
     g_ndsHw.uniform[layer] = uniform;
+    g_ndsHw.hofs[layer]    = (uint16_t)(lx[0] & 511);
     g_ndsHw.vofs[layer]    = (uint16_t)vofs;
     g_ndsHw.table[layer]   = tbl;
 
@@ -579,6 +589,7 @@ static void HwLayer(int layer, const LayerCtx &c, int buf)
         R.lo = lo;
         R.hi = hi;
     }
+    return true;
 }
 
 static bool HwFrameOk()
@@ -604,15 +615,16 @@ static HOT void ClearWords(uint32_t *p, uint32_t v, int n)
                  : "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "memory", "cc");
 }
 
-static bool s_hwMode = false, s_hwOpen = false;
+static bool s_hwMode = false, s_hwOpen = false, s_obj34 = false;
 static int s_hwLayers = 0, s_hwBuf = 0;
+volatile char g_ndsPassInfo[8] = { '-', '-', '-', '-', 0, 0, 0, 0 }; // per tile pass: H hardware, S software, - none
 
 static uint32_t s_tkTiles, s_tkObj;
 
 static void ObjList(int i)
 {
-    if (drawListEntries[i].listSize > 0)
-        s_hwOpen = false;
+    if (i == 3 || i == 4)
+        s_obj34 = true; // from here on a tile pass is in front of the player: it stays in software
     uint32_t t = Ticks();
     DrawObjectList(i);
     s_tkObj += Ticks() - t;
@@ -620,6 +632,7 @@ static void ObjList(int i)
 
 static void DrawTileLayer(int k)
 {
+    g_ndsPassInfo[k] = '-';
     if (activeTileLayers[k] >= LAYER_COUNT)
         return;
     if (stageLayouts[activeTileLayers[k]].type != LAYER_HSCROLL)
@@ -628,11 +641,13 @@ static void DrawTileLayer(int k)
     if (!PrepareLayer(k, c))
         return;
     uint32_t t = Ticks();
-    if (s_hwMode && s_hwOpen && s_hwLayers < 2)
-        HwLayer(s_hwLayers++, c, s_hwBuf);
+    if (s_hwMode && s_hwOpen && !s_obj34 && s_hwLayers < 3 && HwLayer(s_hwLayers, c, s_hwBuf)) {
+        s_hwLayers++;
+        g_ndsPassInfo[k] = 'H';
+    }
     else {
         s_hwOpen = false;
-        NdsDirtyAll();
+        g_ndsPassInfo[k] = 'S';
         DrawHLayerLines(c);
     }
     s_tkTiles += Ticks() - t;
@@ -653,6 +668,7 @@ void DrawStageGFX()
     s_hwMode   = HwFrameOk();
     s_hwOpen   = s_hwMode;
     s_hwLayers = 0;
+    s_obj34    = false;
     s_hwBuf    = s_mapBuf;
     const uint32_t bgc = fullPalette[0][s_clearIndex];
     uint32_t fill      = s_hwMode ? 0 : (bgc | (bgc << 16)); // hardware frame: the bitmap is a transparent sprite layer
