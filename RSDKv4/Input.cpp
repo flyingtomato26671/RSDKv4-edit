@@ -595,6 +595,9 @@ void CheckKeyDown(InputData *input)
 
 int CheckTouchRect(float x, float y, float w, float h)
 {
+#if defined(RETRO_NDS)
+    return -1; // the DS has no mobile touch buttons and no float math: the engine's touch rects never hit
+#endif
     for (int f = 0; f < touches; ++f) {
         if (touchDown[f] && touchXF[f] > (x - w) && touchYF[f] > (y - h) && touchXF[f] <= (x + w) && touchYF[f] <= (y + h)) {
             return f;
@@ -605,6 +608,9 @@ int CheckTouchRect(float x, float y, float w, float h)
 
 int CheckTouchRectMatrix(void *m, float x, float y, float w, float h)
 {
+#if defined(RETRO_NDS)
+    return -1;
+#endif
     MatrixF *mat = (MatrixF *)m;
     for (int f = 0; f < touches; ++f) {
         float tx = touchXF[f];
