@@ -239,7 +239,13 @@ void LoadSfx(char *filePath, byte sfxID)
     char path[0x80];
     StrCopy(path, "Data/SoundFX/");
     StrAdd(path, filePath);
-    if (ReadWav(path, sfxID) || ReadWav(filePath, sfxID)) {
+    int pl = StrLength(path); // the global effects are .ogg in the game's data: tools/ds/convert_audio.py writes a .wav next to each
+    if (pl > 4 && path[pl - 4] == '.' && (path[pl - 3] | 32) == 'o' && (path[pl - 2] | 32) == 'g' && (path[pl - 1] | 32) == 'g') {
+        path[pl - 3] = 'w';
+        path[pl - 2] = 'a';
+        path[pl - 1] = 'v';
+    }
+    if (ReadWav(path, sfxID)) {
         sfxList[sfxID].loaded = true;
         g_ndsSfxLoaded        = g_ndsSfxLoaded + 1;
     }

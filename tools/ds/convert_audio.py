@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Music for the Nintendo DS port: every Data/Music/*.ogg -> a .dsm file next to it (nds/source/audio_ds.c streams it).
+"""Audio for the Nintendo DS port. Under Data/Music every .ogg -> a .dsm file next to it (nds/source/audio_ds.c streams it);
+every other .ogg (Data/SoundFX: the global sound effects) -> a .wav (16-bit mono 22050 Hz) next to it, which audio.cpp loads.
 
 .dsm = 16-byte header (b'DSM1', samples at 22050 Hz, the original sample rate, 0) + signed 16-bit little-endian mono PCM at
 22050 Hz. The original rate is kept because the engine's loop points are in samples of the ogg: the DS scales them.
@@ -7,9 +8,9 @@
 Decoder: ffmpeg (preferred; also gives the original rate through ffprobe) or, without it, the python packages
 soundfile + numpy (pip install soundfile numpy; a plain linear resampler).
 
-Usage: convert_audio.py DATA/Music [--delete-ogg]
+Usage: convert_audio.py DATA [--delete-ogg]   (the Data folder; a Music folder alone also works)
 """
-import os, shutil, struct, subprocess, sys
+import os, shutil, struct, subprocess, sys, wave
 
 RATE = 22050
 
@@ -31,7 +32,10 @@ def via_ffmpeg(path):
 
 
 def via_soundfile(path):
-    import numpy as np, soundfile as sf
+    try:
+        import numpy as np, soundfile as sf
+    except ImportError:
+        sys.exit('convert_audio: no ffmpeg on the PATH and the python packages are missing: pip install soundfile numpy')
     data, rate = sf.read(path, dtype='float32', always_2d=True)
     mono = data.mean(axis=1)
     n = int(len(mono) * RATE / rate)
@@ -41,10 +45,18 @@ def via_soundfile(path):
 
 def convert(path):
     pcm, orig = via_ffmpeg(path) if shutil.which('ffmpeg') else via_soundfile(path)
-    out = os.path.splitext(path)[0] + '.dsm'
-    with open(out, 'wb') as f:
-        f.write(b'DSM1' + struct.pack('<III', len(pcm) // 2, orig, 0))
-        f.write(pcm)
+    if 'music' in path.replace('\\', '/').lower().split('/'):
+        out = os.path.splitext(path)[0] + '.dsm'
+        with open(out, 'wb') as f:
+            f.write(b'DSM1' + struct.pack('<III', len(pcm) // 2, orig, 0))
+            f.write(pcm)
+    else:
+        out = os.path.splitext(path)[0] + '.wav'
+        with wave.open(out, 'wb') as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(RATE)
+            w.writeframes(pcm)
     return out, len(pcm) // 2, orig
 
 
@@ -64,7 +76,7 @@ def main():
                 if delete:
                     os.remove(p)
                 n += 1
-    print('[music] %d tracks converted' % n)
+    print('[audio] %d files converted' % n)
 
 
 if __name__ == '__main__':
