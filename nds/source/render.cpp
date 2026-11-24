@@ -160,8 +160,31 @@ static inline int LineX(const LayerCtx &c, int ly)
     return lx;
 }
 
+// Which visual planes each 128x128 chunk contains (bit 0: plane 0, bit 1: plane 1): a pass skips chunks without its plane
+static byte s_chunkPlanes[0x200];
+static uint32_t s_chunkVer = 1, s_chunkVerDone = 0;
+volatile uint32_t g_ndsSwTiles = 0, g_ndsFillCols = 0; // tiles the software passes drew / map columns the hardware passes wrote, last frame
+static void UpdateChunkPlanes()
+{
+    if (s_chunkVerDone == s_chunkVer)
+        return;
+    s_chunkVerDone = s_chunkVer;
+    for (int ch = 0; ch < 0x200; ++ch) {
+        byte f = 0;
+        const ushort *t = &tiles128x128.ps1Tile[ch * 64];
+        for (int i = 0; i < 64; ++i) {
+            const unsigned pl = (t[i] >> 12) & 0xF;
+            if (pl < 2)
+                f |= 1 << pl;
+        }
+        s_chunkPlanes[ch] = f;
+    }
+}
+
 static HOT void DrawHLayerLines(const LayerCtx &c)
 {
+    UpdateChunkPlanes();
+    const byte planeBit = c.above ? 2 : 1;
     const ushort *tiles = c.layer->tiles;
     const ushort *cts   = tiles128x128.ps1Tile; // bits 0-9 tile, 10-11 direction, 12-15 plane
     const int fullW = c.fullW, fullH = c.fullH;
@@ -183,9 +206,21 @@ static HOT void DrawHLayerLines(const LayerCtx &c)
             int n        = 16 - tx;
             if (n > WIN_W - x)
                 n = WIN_W - x;
-            const int ti = (tiles[(lx >> 7) + chunkRow] << 6) + ((lx & 0x7F) >> 4) + tileRow;
+            const int chk = tiles[(lx >> 7) + chunkRow];
+            if (!(s_chunkPlanes[chk] & planeBit)) { // nothing of this pass in the chunk: skip to its edge
+                n = 128 - (lx & 0x7F);
+                if (n > WIN_W - x)
+                    n = WIN_W - x;
+                x += n;
+                lx += n;
+                if (lx >= fullW)
+                    lx -= fullW;
+                continue;
+            }
+            const int ti = (chk << 6) + ((lx & 0x7F) >> 4) + tileRow;
             const unsigned v = cts[ti];
             if (((v >> 12) & 0xF) == (unsigned)above) {
+                g_ndsSwTiles = g_ndsSwTiles + 1;
                 const int dir = (v >> 10) & 3;
                 const byte *r = &tilesetGFXData[((v & 0x3FF) << 8) + ((dir & 2) ? 15 - tileY16 : tileY16) * 16];
                 uint16_t *d   = dst + x;
@@ -330,6 +365,7 @@ static void HwReset()
     s_dynNext = HW_STATIC_MAX;
     s_hwFail  = false;
     s_mapVer++;
+    s_chunkVer++;
     s_palVer  = 0xFFFFFFFF;
     volatile uint32_t *z = HwTile(0);
     for (int i = 0; i < 16; ++i) z[i] = 0;
@@ -425,7 +461,7 @@ static void HwDynTile(int dest)
     }
 }
 
-void PS1TileChanged(int) { s_mapVer++; } // a chunk's tiles were edited by a script
+void PS1TileChanged(int) { s_mapVer++; s_chunkVer++; } // a chunk's tiles were edited by a script
 
 void PS1Copy16x16Tile(int dest, int src)
 {
@@ -445,6 +481,7 @@ static inline volatile uint16_t *HwMapEntry(int buf, int layer, int col, int row
 // Fills the map columns c16a..c16b (16 px units, unbounded) of the 16x16 tile row r16
 static void HwFillCols(const LayerCtx &c, int buf, int layer, int r16, int c16a, int c16b)
 {
+    g_ndsFillCols = g_ndsFillCols + (c16b - c16a + 1);
     const int cols16 = c.fullW >> 4, rows16 = c.fullH >> 4;
     const int wr     = r16 % rows16;
     const ushort *tiles = c.layer->tiles;
@@ -620,6 +657,7 @@ void DrawStageGFX()
     const uint32_t bgc = fullPalette[0][s_clearIndex];
     uint32_t fill      = s_hwMode ? 0 : (bgc | (bgc << 16)); // hardware frame: the bitmap is a transparent sprite layer
     s_tkTiles = s_tkObj = 0;
+    g_ndsSwTiles = g_ndsFillCols = 0;
     if (!s_hwMode || s_allDirty[s_page]) {
         ClearWords((uint32_t *)g_ndsDst, fill, WIN_H * 256 / 2);
         ResetDirty(s_page);
