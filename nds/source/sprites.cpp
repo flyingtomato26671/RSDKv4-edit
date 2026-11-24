@@ -24,6 +24,28 @@ static inline bool ClipToWindow(int &x, int &y, int &w, int &h, int &sx, int &sy
     return w > 0 && h > 0;
 }
 
+// ---- HUD placement: the engine lays the HUD out for 320x240; the DS window shows x 32..287, y 24..215. Sprites drawn by the
+// "HUD" object (draw lists 5 and 6) are moved 24 px inward from the nearest corner so score / time / rings / lives stay visible.
+static bool s_hudShift = false;
+volatile char g_ndsHudNames[96]; // names of the objects drawn in lists 5 / 6 this frame (diagnostic)
+static bool NameHas(const char *n, const char *sub)
+{
+    for (; *n; ++n) {
+        const char *a = n, *b = sub;
+        while (*a && *b && (*a | 0x20) == (*b | 0x20)) { ++a; ++b; }
+        if (!*b)
+            return true;
+    }
+    return false;
+}
+static inline void HudShift(int &x, int &y)
+{
+    if (s_hudShift) {
+        x += x < SCREEN_XSIZE / 2 ? 24 : -24;
+        y += y < SCREEN_YSIZE / 2 ? 24 : -24;
+    }
+}
+
 #define ITCM_CODE __attribute__((section(".itcm"), long_call))
 #define HOT ITCM_CODE __attribute__((optimize("O3"), target("arm")))
 
@@ -85,6 +107,7 @@ static void SpriteBlit(int XPos, int YPos, int width, int height, int sprX, int 
 {
     if (!g_ndsDst || sheetID < 0 || sheetID >= SURFACE_COUNT)
         return;
+    HudShift(XPos, YPos);
     if (ink != INK_PLAIN) { // no blending: only the shields flicker; everything else translucent is drawn opaque, subtractive is skipped
         if (ink == INK_SUB_)
             return;
@@ -181,6 +204,7 @@ void DrawRectangle(int XPos, int YPos, int width, int height, int R, int G, int 
     if (A > 0xFF)
         A = 0xFF;
     int sx = 0, sy = 0;
+    HudShift(XPos, YPos);
     if (A <= 0 || !ClipToWindow(XPos, YPos, width, height, sx, sy))
         return;
     if (A < 0xFF) { // flicker instead of blending
@@ -222,14 +246,29 @@ void DrawTintRectangle(int XPos, int YPos, int width, int height)
 void DrawObjectList(int Layer)
 {
     int size = drawListEntries[Layer].listSize;
+    if (Layer == 5)
+        g_ndsHudNames[0] = 0;
     for (int i = 0; i < size; ++i) {
         objectEntityPos = drawListEntries[Layer].entityRefs[i];
         int type        = objectEntityList[objectEntityPos].type;
+        s_hudShift      = false;
+        if (type && Layer >= 5) {
+            const char *nm = typeNames[type];
+            s_hudShift     = NameHas(nm, "hud");
+            if (!NameHas((const char *)g_ndsHudNames, nm)) { // names list for the console
+                int n = 0;
+                while (g_ndsHudNames[n]) ++n;
+                for (const char *q = nm; *q && n < 90; ++q) g_ndsHudNames[n++] = *q;
+                if (n < 94) g_ndsHudNames[n++] = ',';
+                g_ndsHudNames[n] = 0;
+            }
+        }
         if (type) {
             if (scriptCode[objectScriptList[type].eventDraw.scriptCodePtr] > 0)
                 ProcessScript(objectScriptList[type].eventDraw.scriptCodePtr, objectScriptList[type].eventDraw.jumpTablePtr, EVENT_DRAW);
         }
     }
+    s_hudShift = false;
 }
 
 // Animated sprite of an object (upstream's, rotation styles included)

@@ -27,11 +27,11 @@ struct NdsHwFrame {
     uint16_t hofs[3];
     int palDirty;
     uint16_t pal[256];
-    int hud[2][4];
     int bright;
 };
 extern NdsHwFrame g_ndsHw;
 extern volatile char g_ndsPassInfo[8];
+extern volatile char g_ndsHudNames[96];
 extern volatile uint32_t g_ndsSwTiles, g_ndsFillCols;
 extern volatile uint32_t g_ndsTkClear, g_ndsTkTiles, g_ndsTkObj;
 extern volatile uint32_t g_ndsHwFrames, g_ndsSwFrames, g_ndsHwTiles, g_ndsHwFail;
@@ -77,25 +77,6 @@ static void applyHw(int bitmapBg)
         for (int i = 0; i < 256; i++) BG_PALETTE[i] = h.pal[i];
         h.palDirty = 0;
     }
-    // a BG2 pass in front of the sprites is hidden inside the HUD's boxes (hardware windows 0 and 1)
-    if (h.hw && h.used[2] && h.bg2Front) {
-        uint16_t dc = REG_DISPCNT & ~(DISPLAY_WIN0_ON | DISPLAY_WIN1_ON);
-        volatile uint16_t *wh[2] = { &REG_WIN0H, &REG_WIN1H };
-        volatile uint16_t *wv[2] = { &REG_WIN0V, &REG_WIN1V };
-        for (int i = 0; i < 2; i++) {
-            const int *b = h.hud[i];
-            if (b[2] > b[0] && b[3] > b[1]) {
-                *wh[i] = (uint16_t)((b[0] << 8) | (b[2] > 255 ? 0 : b[2]));
-                *wv[i] = (uint16_t)((b[1] << 8) | b[3]);
-                dc |= i ? DISPLAY_WIN1_ON : DISPLAY_WIN0_ON;
-            }
-        }
-        REG_WININ  = 0x1B1B; // inside: every layer but BG2 (BG0 BG1 BG3 OBJ)
-        REG_WINOUT = 0x3F;
-        REG_DISPCNT = dc;
-    }
-    else
-        REG_DISPCNT &= ~(DISPLAY_WIN0_ON | DISPLAY_WIN1_ON);
     setBrightness(1, h.bright);
     bgSetPriority(bitmapBg, h.bg2Front ? 1 : 0); // a front pass on BG2 ties with the bitmap (priority 1) and wins by BG index
 }
@@ -174,6 +155,7 @@ int main(void)
             printf("(16 = full speed, per 16 frames)\n");
             printf("ticks last:%lu max:%lu\ndraw ticks:%lu\n", (unsigned long)lastT, (unsigned long)maxT, (unsigned long)NdsRenderTicks());
             printf("clear:%lu tiles:%lu obj:%lu\n", (unsigned long)g_ndsTkClear, (unsigned long)g_ndsTkTiles, (unsigned long)g_ndsTkObj);
+            printf("hud:%s\n", (const char *)g_ndsHudNames);
             printf("passes:%c%c%c%c\n", g_ndsPassInfo[0], g_ndsPassInfo[1], g_ndsPassInfo[2], g_ndsPassInfo[3]);
             printf("swTiles:%lu fillCols:%lu\n", (unsigned long)g_ndsSwTiles, (unsigned long)g_ndsFillCols);
             printf("hw fr:%lu sw fr:%lu tiles:%lu fail:%lu\n", (unsigned long)g_ndsHwFrames, (unsigned long)g_ndsSwFrames,
