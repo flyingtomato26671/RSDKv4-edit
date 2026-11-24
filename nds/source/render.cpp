@@ -29,12 +29,24 @@ static void ResetDirty(int pg)
     s_allDirty[pg] = false;
 }
 void NdsDirtyAll() { s_allDirty[s_page] = true; }
+static bool s_hudCapture = false;
+static int s_hudBox[2][4]; // top half / bottom half of the screen: x0, y0, x1, y1 of what draw lists 5 and 6 drew (x1 <= x0: none)
 void NdsMarkDirty(int x0, int y0, int x1, int y1)
 {
     if (x0 < 0) x0 = 0;
     if (y0 < 0) y0 = 0;
     if (x1 > WIN_W) x1 = WIN_W;
     if (y1 > WIN_H) y1 = WIN_H;
+    if (s_hudCapture && x1 > x0 && y1 > y0) {
+        int *b = s_hudBox[y0 >= WIN_H / 2 ? 1 : 0];
+        if (b[2] <= b[0]) { b[0] = x0; b[1] = y0; b[2] = x1; b[3] = y1; }
+        else {
+            if (x0 < b[0]) b[0] = x0;
+            if (y0 < b[1]) b[1] = y0;
+            if (x1 > b[2]) b[2] = x1;
+            if (y1 > b[3]) b[3] = y1;
+        }
+    }
     for (int y = y0; y < y1; ++y) {
         uint16_t *d = s_dirty[s_page][y];
         if (x0 < d[0]) d[0] = (uint16_t)x0;
@@ -341,6 +353,7 @@ struct NdsHwFrame {
     uint16_t hofs[3];     // x scroll of line 0
     int palDirty;
     uint16_t pal[256];
+    int hud[2][4];        // boxes where a front pass on BG2 is hidden (the HUD stays on top)
     int bright;           // -16..16 (master brightness, fades to black / white)
 };
 extern "C" NdsHwFrame g_ndsHw;
@@ -628,7 +641,9 @@ static void ObjList(int i)
     if (i == 3 || i == 4)
         s_obj34 = true; // from here on a tile pass is in front of the player: it stays in software
     uint32_t t = Ticks();
+    s_hudCapture = i >= 5;
     DrawObjectList(i);
+    s_hudCapture = false;
     s_tkObj += Ticks() - t;
 }
 
@@ -679,6 +694,7 @@ void DrawStageGFX()
     s_obj34    = false;
     g_ndsHw.used[0] = g_ndsHw.used[1] = g_ndsHw.used[2] = 0;
     g_ndsHw.bg2Front = 0;
+    for (int i = 0; i < 2; ++i) s_hudBox[i][0] = s_hudBox[i][1] = s_hudBox[i][2] = s_hudBox[i][3] = 0;
     s_hwBuf    = s_mapBuf;
     const uint32_t bgc = fullPalette[0][s_clearIndex];
     uint32_t fill      = s_hwMode ? 0 : (bgc | (bgc << 16)); // hardware frame: the bitmap is a transparent sprite layer
@@ -742,6 +758,8 @@ void DrawStageGFX()
             DrawRectangle(0, 0, SCREEN_XSIZE, SCREEN_YSIZE, fadeR, fadeG, fadeB, fadeA);
     }
 
+    for (int i = 0; i < 2; ++i)
+        for (int j = 0; j < 4; ++j) g_ndsHw.hud[i][j] = s_hudBox[i][j];
     g_ndsHw.hw      = s_hwMode;
     g_ndsHw.nLayers = s_hwLayers;
     g_ndsHw.buf     = s_hwBuf;

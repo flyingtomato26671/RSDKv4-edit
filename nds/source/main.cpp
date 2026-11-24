@@ -27,6 +27,7 @@ struct NdsHwFrame {
     uint16_t hofs[3];
     int palDirty;
     uint16_t pal[256];
+    int hud[2][4];
     int bright;
 };
 extern NdsHwFrame g_ndsHw;
@@ -76,6 +77,25 @@ static void applyHw(int bitmapBg)
         for (int i = 0; i < 256; i++) BG_PALETTE[i] = h.pal[i];
         h.palDirty = 0;
     }
+    // a BG2 pass in front of the sprites is hidden inside the HUD's boxes (hardware windows 0 and 1)
+    if (h.hw && h.used[2] && h.bg2Front) {
+        uint16_t dc = REG_DISPCNT & ~(DISPLAY_WIN0_ON | DISPLAY_WIN1_ON);
+        volatile uint16_t *wh[2] = { &REG_WIN0H, &REG_WIN1H };
+        volatile uint16_t *wv[2] = { &REG_WIN0V, &REG_WIN1V };
+        for (int i = 0; i < 2; i++) {
+            const int *b = h.hud[i];
+            if (b[2] > b[0] && b[3] > b[1]) {
+                *wh[i] = (uint16_t)((b[0] << 8) | (b[2] > 255 ? 0 : b[2]));
+                *wv[i] = (uint16_t)((b[1] << 8) | b[3]);
+                dc |= i ? DISPLAY_WIN1_ON : DISPLAY_WIN0_ON;
+            }
+        }
+        REG_WININ  = 0x1B1B; // inside: every layer but BG2 (BG0 BG1 BG3 OBJ)
+        REG_WINOUT = 0x3F;
+        REG_DISPCNT = dc;
+    }
+    else
+        REG_DISPCNT &= ~(DISPLAY_WIN0_ON | DISPLAY_WIN1_ON);
     setBrightness(1, h.bright);
     bgSetPriority(bitmapBg, h.bg2Front ? 1 : 0); // a front pass on BG2 ties with the bitmap (priority 1) and wins by BG index
 }
