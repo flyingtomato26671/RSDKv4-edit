@@ -29,6 +29,7 @@ struct NdsHwFrame {
     int bright;
 };
 extern NdsHwFrame g_ndsHw;
+extern volatile uint32_t g_ndsTkClear, g_ndsTkTiles, g_ndsTkObj;
 extern volatile uint32_t g_ndsHwFrames, g_ndsSwFrames, g_ndsHwTiles, g_ndsHwFail;
 }
 
@@ -137,6 +138,7 @@ int main(void)
             printf("vblanks/frame avg x16:%u max:%u\n", sumV, maxV);
             printf("(16 = full speed, per 16 frames)\n");
             printf("ticks last:%lu max:%lu\ndraw ticks:%lu\n", (unsigned long)lastT, (unsigned long)maxT, (unsigned long)NdsRenderTicks());
+            printf("clear:%lu tiles:%lu obj:%lu\n", (unsigned long)g_ndsTkClear, (unsigned long)g_ndsTkTiles, (unsigned long)g_ndsTkObj);
             printf("hw fr:%lu sw fr:%lu tiles:%lu fail:%lu\n", (unsigned long)g_ndsHwFrames, (unsigned long)g_ndsSwFrames,
                    (unsigned long)g_ndsHwTiles, (unsigned long)g_ndsHwFail);
             char info[200];

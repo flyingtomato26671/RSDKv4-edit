@@ -24,6 +24,60 @@ static inline bool ClipToWindow(int &x, int &y, int &w, int &h, int &sx, int &sy
     return w > 0 && h > 0;
 }
 
+#define ITCM_CODE __attribute__((section(".itcm"), long_call))
+#define HOT ITCM_CODE __attribute__((optimize("O3"), target("arm")))
+
+// Plain (opaque-where-not-transparent) blit of the visible part: no per-pixel ink switch, 4 transparent pixels skipped per word
+static HOT void BlitPlain(const byte *sheet, int stride, int sprX, int sprY, int W, int H, bool fx, bool fy, int x, int y, int w, int h,
+                          int ox, int oy)
+{
+    for (int r = 0; r < h; ++r) {
+        const int ly            = y + r;
+        const uint16_t *pal     = fullPalette[gfxLineBuffer[ly] & 7];
+        const int sy            = sprY + (fy ? H - 1 - (oy + r) : oy + r);
+        uint16_t *d             = g_ndsDst + (ly - WIN_Y0) * 256 + (x - WIN_X0);
+        if (!fx) {
+            const byte *s = &sheet[sy * stride + sprX + ox];
+            int n         = w;
+            while (n > 0 && ((uintptr_t)s & 3)) {
+                byte p = *s++;
+                if (p)
+                    *d = pal[p];
+                ++d;
+                --n;
+            }
+            while (n >= 4) {
+                const uint32_t q = *(const uint32_t *)s;
+                if (q) {
+                    byte p;
+                    if ((p = q & 0xFF)) d[0] = pal[p];
+                    if ((p = (q >> 8) & 0xFF)) d[1] = pal[p];
+                    if ((p = (q >> 16) & 0xFF)) d[2] = pal[p];
+                    if ((p = q >> 24)) d[3] = pal[p];
+                }
+                s += 4;
+                d += 4;
+                n -= 4;
+            }
+            while (n > 0) {
+                byte p = *s++;
+                if (p)
+                    *d = pal[p];
+                ++d;
+                --n;
+            }
+        }
+        else {
+            const byte *s = &sheet[sy * stride + sprX + (W - 1 - ox)];
+            for (int c = 0; c < w; ++c) {
+                byte p = *s--;
+                if (p)
+                    d[c] = pal[p];
+            }
+        }
+    }
+}
+
 enum { INK_PLAIN, INK_50, INK_ALPHA_, INK_ADD_, INK_SUB_ };
 
 // One routine for every sprite draw: flip = FLIP_* of the sheet region, ink picks how a pixel meets the one below.
@@ -40,6 +94,10 @@ static void SpriteBlit(int XPos, int YPos, int width, int height, int sprX, int 
     const bool fx = flip == FLIP_X || flip == FLIP_XY;
     const bool fy = flip == FLIP_Y || flip == FLIP_XY;
     const byte *sheet = &graphicData[surface->dataPosition];
+    if (ink == INK_PLAIN) {
+        BlitPlain(sheet, surface->width, sprX, sprY, W, H, fx, fy, x, y, w, h, ox, oy);
+        return;
+    }
     for (int r = 0; r < h; ++r) {
         const int ly = y + r; // logic line
         const uint16_t *pal = fullPalette[gfxLineBuffer[ly] & 7];

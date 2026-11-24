@@ -10,7 +10,8 @@ uint16_t *g_ndsDst = nullptr;
 byte graphicData[GFXDATA_SIZE]; // the stage's sprite sheets (8-bit)
 static int s_clearIndex = 0;
 static bool s_drawn = false;      // a frame was drawn since main last took it (a paused game draws nothing)
-volatile uint32_t g_ndsRenderTicks = 0; // ARM9 ticks (33.5 MHz) DrawStageGFX took last
+volatile uint32_t g_ndsRenderTicks = 0;
+volatile uint32_t g_ndsTkClear = 0, g_ndsTkTiles = 0, g_ndsTkObj = 0; // split of the draw: bitmap clear / tile passes / object lists // ARM9 ticks (33.5 MHz) DrawStageGFX took last
 
 #define ITCM_CODE __attribute__((section(".itcm"), long_call))
 #define HOT ITCM_CODE __attribute__((optimize("O3"), target("arm")))
@@ -503,14 +504,28 @@ static bool HwFrameOk()
 // ---- the engine's drawing interface (the rest stays a stub in stubs.cpp until its step)
 void ClearScreen(byte index) { s_clearIndex = index; }
 
+// 8 words per store-multiple burst (VRAM likes bursts); n is a multiple of 8
+static HOT void ClearWords(uint32_t *p, uint32_t v, int n)
+{
+    asm volatile("mov r4, %2\n mov r5, %2\n mov r6, %2\n mov r7, %2\n mov r8, %2\n mov r9, %2\n mov r10, %2\n mov r11, %2\n"
+                 "1: stmia %0!, {r4-r11}\n subs %1, %1, #8\n bgt 1b\n"
+                 : "+r"(p), "+r"(n)
+                 : "r"(v)
+                 : "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "memory", "cc");
+}
+
 static bool s_hwMode = false, s_hwOpen = false;
 static int s_hwLayers = 0, s_hwBuf = 0;
+
+static uint32_t s_tkTiles, s_tkObj;
 
 static void ObjList(int i)
 {
     if (drawListEntries[i].listSize > 0)
         s_hwOpen = false;
+    uint32_t t = Ticks();
     DrawObjectList(i);
+    s_tkObj += Ticks() - t;
 }
 
 static void DrawTileLayer(int k)
@@ -522,12 +537,14 @@ static void DrawTileLayer(int k)
     LayerCtx c;
     if (!PrepareLayer(k, c))
         return;
+    uint32_t t = Ticks();
     if (s_hwMode && s_hwOpen && s_hwLayers < 2)
         HwLayer(s_hwLayers++, c, s_hwBuf);
     else {
         s_hwOpen = false;
         DrawHLayerLines(c);
     }
+    s_tkTiles += Ticks() - t;
 }
 
 // Upstream's DrawStageGFX order: the objects' draw layers interleaved with the tile layers.
@@ -548,10 +565,9 @@ void DrawStageGFX()
     s_hwBuf    = s_mapBuf;
     const uint32_t bgc = fullPalette[0][s_clearIndex];
     uint32_t fill      = s_hwMode ? 0 : (bgc | (bgc << 16)); // hardware frame: the bitmap is a transparent sprite layer
-    for (int y = 0; y < WIN_H; ++y) {
-        uint32_t *row = (uint32_t *)(g_ndsDst + y * 256);
-        for (int i = 0; i < WIN_W / 2; ++i) row[i] = fill;
-    }
+    s_tkTiles = s_tkObj = 0;
+    ClearWords((uint32_t *)g_ndsDst, fill, WIN_H * 256 / 2);
+    g_ndsTkClear = Ticks() - t0;
 
     if (tLayerMidPoint < 3) {
         ObjList(0);
@@ -579,6 +595,8 @@ void DrawStageGFX()
         ObjList(6);
     }
 
+    g_ndsTkTiles = s_tkTiles;
+    g_ndsTkObj   = s_tkObj;
     g_ndsHw.bright = 0;
     if (fadeMode > 0) {
         const bool black = fadeR < 8 && fadeG < 8 && fadeB < 8, white = fadeR > 247 && fadeG > 247 && fadeB > 247;
