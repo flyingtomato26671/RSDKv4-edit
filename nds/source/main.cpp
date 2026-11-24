@@ -20,7 +20,7 @@ int NdsFrameDrawn(void);
 uint32_t NdsRenderTicks(void);
 void NdsHwInit(void);
 struct NdsHwFrame {
-    int hw, nLayers, buf;
+    int hw, nLayers, used[3], bg2Front, buf;
     uint16_t vofs[3];
     int uniform[3];
     uint32_t *table[3];
@@ -48,7 +48,7 @@ static void applyHw(int bitmapBg)
     volatile uint16_t *vofs[2] = { &REG_BG0VOFS, &REG_BG1VOFS };
     for (int i = 0; i < 2; i++) {
         DMA_CR(1 + i) = 0; // stop the previous frame's per-line scroll
-        if (h.hw && i < h.nLayers) {
+        if (h.hw && h.used[i]) {
             // farther layer first: BG0 = priority 3, BG1 = 2, the extended BG2 = 1; the sprite bitmap (BG3) is 0
             *cnt[i] = BG_PRIORITY(3 - i) | BG_COLOR_256 | BG_64x64 | BG_TILE_BASE(4) | BG_MAP_BASE(h.buf * 8 + i * 4);
             *hofs[i] = h.table[i][0] & 0x1FF;
@@ -64,7 +64,7 @@ static void applyHw(int bitmapBg)
         else
             videoBgDisable(i);
     }
-    if (h.hw && h.nLayers > 2) { // the third pass: extended BG (16-bit map entries), whole-layer scroll through the affine origin
+    if (h.hw && h.used[2]) { // the third pass: extended BG (16-bit map entries), whole-layer scroll through the affine origin
         bgSetMapBase(2, 16 + h.buf * 4);
         REG_BG2X = (int)h.hofs[2] << 8;
         REG_BG2Y = (int)h.vofs[2] << 8;
@@ -77,7 +77,7 @@ static void applyHw(int bitmapBg)
         h.palDirty = 0;
     }
     setBrightness(1, h.bright);
-    bgSetPriority(bitmapBg, 0);
+    bgSetPriority(bitmapBg, h.bg2Front ? 1 : 0); // a front pass on BG2 ties with the bitmap (priority 1) and wins by BG index
 }
 
 static void waitForever(void)

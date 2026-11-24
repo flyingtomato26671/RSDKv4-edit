@@ -331,7 +331,9 @@ static bool PrepareLayer(int layerID, LayerCtx &c)
 
 struct NdsHwFrame {
     int hw;               // 1: BG0/BG1 carry tile layers this frame (else the bitmap holds everything)
-    int nLayers;          // 0..3 (BG0, BG1 text; BG2 extended)
+    int nLayers;          // (unused)
+    int used[3];          // BG0, BG1 (text) and BG2 (extended) carry a tile pass this frame
+    int bg2Front;         // BG2 is a pass in front of the sprites (else behind them)
     int buf;              // map buffer to show
     uint16_t vofs[3];
     int uniform[3];       // every line has the same x scroll (layer 2, the extended BG, needs it)
@@ -642,8 +644,14 @@ static void DrawTileLayer(int k)
         return;
     uint32_t t = Ticks();
     if (s_hwMode && s_hwOpen && !s_obj34 && s_hwLayers < 3 && HwLayer(s_hwLayers, c, s_hwBuf)) {
+        g_ndsHw.used[s_hwLayers] = 1; // a pass behind the sprites: BG0, BG1, BG2 in order
         s_hwLayers++;
         g_ndsPassInfo[k] = 'H';
+    }
+    else if (s_hwMode && s_obj34 && !g_ndsHw.used[2] && HwLayer(2, c, s_hwBuf)) {
+        g_ndsHw.used[2]   = 1; // a pass in front of the player: BG2 above the sprite bitmap
+        g_ndsHw.bg2Front  = 1;
+        g_ndsPassInfo[k]  = 'F';
     }
     else {
         s_hwOpen = false;
@@ -669,6 +677,8 @@ void DrawStageGFX()
     s_hwOpen   = s_hwMode;
     s_hwLayers = 0;
     s_obj34    = false;
+    g_ndsHw.used[0] = g_ndsHw.used[1] = g_ndsHw.used[2] = 0;
+    g_ndsHw.bg2Front = 0;
     s_hwBuf    = s_mapBuf;
     const uint32_t bgc = fullPalette[0][s_clearIndex];
     uint32_t fill      = s_hwMode ? 0 : (bgc | (bgc << 16)); // hardware frame: the bitmap is a transparent sprite layer
