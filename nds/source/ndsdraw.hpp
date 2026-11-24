@@ -18,3 +18,16 @@ static inline uint32_t NdsBlend(uint32_t src, uint32_t dst, int alpha) // alpha 
     int b  = (((src >> 10) & 31) * alpha + ((dst >> 10) & 31) * ia) >> 8;
     return 0x8000 | (b << 10) | (g << 5) | r;
 }
+
+extern uint32_t g_ndsFlick;                         // frame counter: translucency is faked by flicker (like the Mega Drive shield)
+void NdsMarkDirty(int x0, int y0, int x1, int y1);  // window coords, half-open: the page's rows to clear next time
+void NdsDirtyAll();                                 // the whole page was touched
+// Translucent draws: opaque on some frames only (alpha 0..255 = how often); false = skip this frame
+static inline bool NdsFlickerOn(int alpha)
+{
+    if (alpha >= 192)
+        return true;
+    if (alpha >= 96)
+        return (g_ndsFlick & 1) == 0;
+    return g_ndsFlick % 3 == 0;
+}

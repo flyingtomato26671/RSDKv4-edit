@@ -16143,6 +16143,9 @@ void ProcessScript(int scriptCodeStart, int jumpTableStart, byte scriptEvent)
                 break;
             case FUNC_SETTILELAYERENTRY:
                 stageLayouts[scriptEng.operands[1]].tiles[scriptEng.operands[2] + 0x100 * scriptEng.operands[3]] = scriptEng.operands[0];
+#if defined(RETRO_NDS)
+                PS1TileChanged(0); // nds: the hardware tile maps are cached between frames
+#endif
 #if RETRO_PLATFORM == RETRO_PS1
                 g_ps1TileInputGen = g_ps1TileInputGen + 1;
 #endif

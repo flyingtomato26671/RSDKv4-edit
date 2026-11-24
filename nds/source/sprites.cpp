@@ -85,6 +85,11 @@ static void SpriteBlit(int XPos, int YPos, int width, int height, int sprX, int 
 {
     if (!g_ndsDst || sheetID < 0 || sheetID >= SURFACE_COUNT)
         return;
+    if (ink != INK_PLAIN) { // no blending: flicker opaque on some frames; subtractive effects are skipped
+        if (ink == INK_SUB_ || !NdsFlickerOn(alpha))
+            return;
+        ink = INK_PLAIN;
+    }
     const GFXSurface *surface = &gfxSurface[sheetID];
     const int W = width, H = height, X = XPos, Y = YPos;
     // visible part of the sprite, in sprite-local coordinates
@@ -95,6 +100,7 @@ static void SpriteBlit(int XPos, int YPos, int width, int height, int sprX, int 
     const bool fy = flip == FLIP_Y || flip == FLIP_XY;
     const byte *sheet = &graphicData[surface->dataPosition];
     if (ink == INK_PLAIN) {
+        NdsMarkDirty(x - WIN_X0, y - WIN_Y0, x - WIN_X0 + w, y - WIN_Y0 + h);
         BlitPlain(sheet, surface->width, sprX, sprY, W, H, fx, fy, x, y, w, h, ox, oy);
         return;
     }
@@ -175,6 +181,12 @@ void DrawRectangle(int XPos, int YPos, int width, int height, int R, int G, int 
     int sx = 0, sy = 0;
     if (A <= 0 || !ClipToWindow(XPos, YPos, width, height, sx, sy))
         return;
+    if (A < 0xFF) { // flicker instead of blending
+        if (!NdsFlickerOn(A))
+            return;
+        A = 0xFF;
+    }
+    NdsMarkDirty(XPos - WIN_X0, YPos - WIN_Y0, XPos - WIN_X0 + width, YPos - WIN_Y0 + height);
     const uint32_t clr = PACK_RGB888(R, G, B);
     for (int r = 0; r < height; ++r) {
         uint16_t *dst = g_ndsDst + (YPos + r - WIN_Y0) * 256 + (XPos - WIN_X0);
@@ -191,6 +203,7 @@ void DrawTintRectangle(int XPos, int YPos, int width, int height)
     int sx = 0, sy = 0;
     if (!ClipToWindow(XPos, YPos, width, height, sx, sy))
         return;
+    NdsMarkDirty(XPos - WIN_X0, YPos - WIN_Y0, XPos - WIN_X0 + width, YPos - WIN_Y0 + height);
     for (int r = 0; r < height; ++r) {
         uint16_t *dst = g_ndsDst + (YPos + r - WIN_Y0) * 256 + (XPos - WIN_X0);
         for (int c = 0; c < width; ++c) { // upstream's tint table: the average of the channels + 6, as grey

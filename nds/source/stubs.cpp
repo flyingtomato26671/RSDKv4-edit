@@ -22,7 +22,6 @@ bool PS1AtlasLoad(const char *, int) { return true; }
 void PS1BuildTileVisuals() {}
 void PS1LoadBGStrips(const char *, int) {}
 void PS1PaletteLinesChanged() {}
-void PS1TileChanged(int) {}
 
 // ---- audio (real: audio.cpp)
 int masterVolume = 100, bgmVolume = 100, sfxVolume = 100;

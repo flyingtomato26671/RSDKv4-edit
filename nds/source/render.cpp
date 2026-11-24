@@ -16,7 +16,42 @@ volatile uint32_t g_ndsTkClear = 0, g_ndsTkTiles = 0, g_ndsTkObj = 0; // split o
 #define ITCM_CODE __attribute__((section(".itcm"), long_call))
 #define HOT ITCM_CODE __attribute__((optimize("O3"), target("arm")))
 
-extern "C" void NdsSetBackBuffer(uint16_t *p) { g_ndsDst = p; }
+uint32_t g_ndsFlick = 0;
+static int s_page = 0;                  // which of the two bitmap pages g_ndsDst is
+static bool s_allDirty[2] = { false, false };
+static uint16_t s_dirty[2][WIN_H][2];   // per page and row: touched x range [x0, x1) in pixels (x0 >= x1: clean)
+static void ResetDirty(int pg)
+{
+    for (int y = 0; y < WIN_H; ++y) {
+        s_dirty[pg][y][0] = 0xFFFF;
+        s_dirty[pg][y][1] = 0;
+    }
+    s_allDirty[pg] = false;
+}
+void NdsDirtyAll() { s_allDirty[s_page] = true; }
+void NdsMarkDirty(int x0, int y0, int x1, int y1)
+{
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > WIN_W) x1 = WIN_W;
+    if (y1 > WIN_H) y1 = WIN_H;
+    for (int y = y0; y < y1; ++y) {
+        uint16_t *d = s_dirty[s_page][y];
+        if (x0 < d[0]) d[0] = (uint16_t)x0;
+        if (x1 > d[1]) d[1] = (uint16_t)x1;
+    }
+}
+extern "C" void NdsSetBackBuffer(uint16_t *p)
+{
+    static bool init = false;
+    if (!init) {
+        init = true;
+        ResetDirty(0);
+        ResetDirty(1);
+    }
+    g_ndsDst = p;
+    s_page   = (uintptr_t)p == 0x06020000 ? 0 : 1;
+}
 extern "C" int NdsFrameDrawn(void)
 {
     int d   = s_drawn;
@@ -275,6 +310,9 @@ static uint16_t s_hash[2048];       // 8x8 block hash -> hardware tile + 1
 static int s_next = 1, s_dynNext = HW_STATIC_MAX;
 static bool s_hwReady = false, s_hwFail = false, s_dyn[TILE_COUNT];
 static int s_mapBuf = 0;
+static uint32_t s_mapVer = 1; // bumped whenever map contents could change without the scroll (tileset, tile edits)
+struct MapRec { int r16; int lo, hi; uintptr_t sig; uint32_t ver; };
+static MapRec s_rec[2][2][32]; // per map buffer, layer and 16-px row: the columns already written
 static uint s_palVer = 0xFFFFFFFF;
 static int s_palClear = -1;
 volatile uint32_t g_ndsHwTiles = 0, g_ndsHwFrames = 0, g_ndsSwFrames = 0, g_ndsHwFail = 0;
@@ -291,6 +329,7 @@ static void HwReset()
     s_next    = 1;
     s_dynNext = HW_STATIC_MAX;
     s_hwFail  = false;
+    s_mapVer++;
     s_palVer  = 0xFFFFFFFF;
     volatile uint32_t *z = HwTile(0);
     for (int i = 0; i < 16; ++i) z[i] = 0;
@@ -373,6 +412,7 @@ static void HwDynTile(int dest)
             return;
         }
         s_dyn[dest] = true;
+        s_mapVer++; // maps written before this tile became animated hold its static copy
         for (int q = 0; q < 4; ++q) s_q[dest][q] = (uint16_t)(s_dynNext + q);
         s_dynNext += 4;
     }
@@ -384,6 +424,8 @@ static void HwDynTile(int dest)
         for (int i = 0; i < 16; ++i) t[i] = w[i];
     }
 }
+
+void PS1TileChanged(int) { s_mapVer++; } // a chunk's tiles were edited by a script
 
 void PS1Copy16x16Tile(int dest, int src)
 {
@@ -464,7 +506,16 @@ static void HwLayer(int layer, const LayerCtx &c, int buf)
         int wa = r16 * 16 - y0, wb = wa + 15;
         if (wa < 0) wa = 0;
         if (wb > WIN_H - 1) wb = WIN_H - 1;
-        int lo = 1, hi = 0; // filled column range (empty at first)
+        MapRec &R = s_rec[buf][layer][r16 & 31];
+        const uintptr_t sig = (uintptr_t)c.layer * 2 + (c.above ? 1 : 0);
+        if (R.r16 != r16 || R.sig != sig || R.ver != s_mapVer) {
+            R.r16 = r16;
+            R.sig = sig;
+            R.ver = s_mapVer;
+            R.lo  = 1;
+            R.hi  = 0;
+        }
+        int lo = R.lo, hi = R.hi; // columns this map row already holds (from earlier frames)
         int lastx = -1;
         for (int wy = wa; wy <= wb; ++wy) {
             if (lx[wy] == lastx)
@@ -488,6 +539,8 @@ static void HwLayer(int layer, const LayerCtx &c, int buf)
                 hi = b;
             }
         }
+        R.lo = lo;
+        R.hi = hi;
     }
 }
 
@@ -542,6 +595,7 @@ static void DrawTileLayer(int k)
         HwLayer(s_hwLayers++, c, s_hwBuf);
     else {
         s_hwOpen = false;
+        NdsDirtyAll();
         DrawHLayerLines(c);
     }
     s_tkTiles += Ticks() - t;
@@ -566,7 +620,23 @@ void DrawStageGFX()
     const uint32_t bgc = fullPalette[0][s_clearIndex];
     uint32_t fill      = s_hwMode ? 0 : (bgc | (bgc << 16)); // hardware frame: the bitmap is a transparent sprite layer
     s_tkTiles = s_tkObj = 0;
-    ClearWords((uint32_t *)g_ndsDst, fill, WIN_H * 256 / 2);
+    if (!s_hwMode || s_allDirty[s_page]) {
+        ClearWords((uint32_t *)g_ndsDst, fill, WIN_H * 256 / 2);
+        ResetDirty(s_page);
+        s_allDirty[s_page] = !s_hwMode; // a software frame fills the whole page: the next hardware frame clears it all
+    }
+    else { // only what the frame drawn into this page two frames ago touched
+        for (int y = 0; y < WIN_H; ++y) {
+            int a = s_dirty[s_page][y][0] & ~1, b = (s_dirty[s_page][y][1] + 1) & ~1; // whole words
+            if (a < b) {
+                uint32_t *p = (uint32_t *)(g_ndsDst + y * 256 + a);
+                for (int n = (b - a) >> 1; n > 0; --n) *p++ = 0;
+                s_dirty[s_page][y][0] = 0xFFFF;
+                s_dirty[s_page][y][1] = 0;
+            }
+        }
+    }
+    g_ndsFlick++;
     g_ndsTkClear = Ticks() - t0;
 
     if (tLayerMidPoint < 3) {
