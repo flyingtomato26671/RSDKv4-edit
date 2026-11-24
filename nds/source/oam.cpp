@@ -180,7 +180,7 @@ bool NdsOamSprite(int X, int Y, int W, int H, int sprX, int sprY, int flip, int 
         return true; // entirely off the window
     if (W > 255 || H > 255 || sprX > 4095 || sprY > 4095)
         return false;
-    Frame *f = Lookup(sheetID, sprX, sprY, W, H, sheet, stride);
+    Frame *f = Lookup(sheetID, sprX, sprY, W, H, sheet + sprY * stride + sprX, stride); // the frame's own top-left corner
     if (!f || f->n == 0)
         return false;
     const bool fx = flip == FLIP_X || flip == FLIP_XY, fy = flip == FLIP_Y || flip == FLIP_XY;
