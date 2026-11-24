@@ -231,8 +231,14 @@ static inline Entity *PS1ScanLive(Entity *e, Entity *end)
 #endif
 }
 #endif
+#if defined(RETRO_NDS)
+#include "../nds/source/ndsdraw.hpp"
+#endif
 void ProcessObjects()
 {
+#if defined(RETRO_NDS)
+    memset(g_ndsTypeUpd, 0, sizeof(g_ndsTypeUpd));
+#endif
 #if PS1_PROFILE
     memset(g_ps1TypeTicks, 0, sizeof(g_ps1TypeTicks));
     memset(g_ps1TypeCalls, 0, sizeof(g_ps1TypeCalls));
@@ -315,6 +321,9 @@ void ProcessObjects()
 
         if (flag && entity->type > OBJ_TYPE_BLANKOBJECT) {
             ObjectScript *scriptInfo = &objectScriptList[entity->type];
+#if defined(RETRO_NDS)
+            const uint32_t ndsT0 = NdsTicksNow();
+#endif
 #if PS1_PROFILE
             int ps1Type     = entity->type;
             uint32_t ps1Op0 = g_ps1VmOps;
@@ -330,6 +339,9 @@ void ProcessObjects()
                 ProcessScript(scriptInfo->eventUpdate.scriptCodePtr, scriptInfo->eventUpdate.jumpTablePtr, EVENT_MAIN);
                 bounds();
             }
+#if defined(RETRO_NDS)
+            g_ndsTypeUpd[entity->type & 0xFF] += NdsTicksNow() - ndsT0;
+#endif
 #if PS1_PROFILE
             g_ps1TypeTicks[ps1Type] += (PS1ProfTicks() - ps1T0) & 0xFFFF;
             g_ps1TypeCalls[ps1Type]++;

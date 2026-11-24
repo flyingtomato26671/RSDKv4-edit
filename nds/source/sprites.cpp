@@ -264,6 +264,21 @@ void DrawTintRectangle(int XPos, int YPos, int width, int height)
 }
 
 // ---- object draw lists (Script.cpp's draw events call the sprite functions above)
+uint32_t g_ndsTypeUpd[256], g_ndsTypeDraw[256];
+volatile uint32_t g_ndsTkLogic = 0;
+// per type, computed once per stage: bit0 known, bit1 HUD, bit2 waterfall (string searches per object per frame were a cost)
+static uint8_t s_typeFlag[256];
+void NdsTypeCacheReset() { memset(s_typeFlag, 0, sizeof(s_typeFlag)); }
+static inline int TypeFlags(int type)
+{
+    uint8_t f = s_typeFlag[type & 0xFF];
+    if (!f) {
+        f = 1 | (NameHas(typeNames[type], "hud") ? 2 : 0) | (NameHas(typeNames[type], "waterfall") ? 4 : 0);
+        s_typeFlag[type & 0xFF] = f;
+    }
+    return f;
+}
+
 void DrawObjectList(int Layer)
 {
     int size = drawListEntries[Layer].listSize;
@@ -273,9 +288,10 @@ void DrawObjectList(int Layer)
         objectEntityPos = drawListEntries[Layer].entityRefs[i];
         int type        = objectEntityList[objectEntityPos].type;
         s_hudShift      = false;
+        const int tf    = type ? TypeFlags(type) : 0;
         if (type && Layer >= 5) {
             const char *nm = typeNames[type];
-            s_hudShift     = NameHas(nm, "hud");
+            s_hudShift     = (tf & 2) != 0;
             if (!NameHas((const char *)g_ndsHudNames, nm)) { // names list for the console
                 int n = 0;
                 while (g_ndsHudNames[n]) ++n;
@@ -284,9 +300,12 @@ void DrawObjectList(int Layer)
                 g_ndsHudNames[n] = 0;
             }
         }
-        if (type && !NameHas(typeNames[type], "waterfall")) { // the waterfall overlay costs most of a frame: the animated tiles remain
-            if (scriptCode[objectScriptList[type].eventDraw.scriptCodePtr] > 0)
+        if (type && !(tf & 4)) { // the waterfall overlay costs most of a frame: the animated tiles remain
+            if (scriptCode[objectScriptList[type].eventDraw.scriptCodePtr] > 0) {
+                const uint32_t t0 = NdsTicksNow();
                 ProcessScript(objectScriptList[type].eventDraw.scriptCodePtr, objectScriptList[type].eventDraw.jumpTablePtr, EVENT_DRAW);
+                g_ndsTypeDraw[type & 0xFF] += NdsTicksNow() - t0;
+            }
         }
     }
     s_hudShift = false;

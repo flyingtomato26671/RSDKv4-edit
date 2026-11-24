@@ -25,6 +25,9 @@ int NdsFrameDrawn(void);
 uint32_t NdsRenderTicks(void);
 void NdsHwInit(void);
 unsigned NdsHeapFree(void);
+uint32_t NdsTkLogic(void);
+void NdsTopUpd(char *buf, int n);
+void NdsTopDraw(char *buf, int n);
 struct NdsHwFrame {
     int hw, nLayers, used[3], bg2Front, buf;
     uint16_t vofs[3];
@@ -166,7 +169,7 @@ static void showStatus(int page, unsigned frame, unsigned sumV, unsigned maxV, u
         row("vbl/frame x16:%u max:%u", sumV, maxV);
         row("(16 = 60 fps, 32 = 30 fps)");
         row("ticks:%lu max:%lu", (unsigned long)lastT, (unsigned long)maxT);
-        row("draw:%lu", (unsigned long)NdsRenderTicks());
+        row("logic:%lu draw:%lu", (unsigned long)NdsTkLogic(), (unsigned long)NdsRenderTicks());
         row(" clear:%lu", (unsigned long)g_ndsTkClear);
         row(" tiles:%lu", (unsigned long)g_ndsTkTiles);
         row(" obj:%lu", (unsigned long)g_ndsTkObj);
@@ -178,7 +181,13 @@ static void showStatus(int page, unsigned frame, unsigned sumV, unsigned maxV, u
         row("hw:%lu sw:%lu", (unsigned long)g_ndsHwFrames, (unsigned long)g_ndsSwFrames);
         row("hw tiles:%lu fail:%lu", (unsigned long)g_ndsHwTiles, (unsigned long)g_ndsHwFail);
         row("water switches:%d", g_ndsHw.nSwitch);
-        row("heap free: %u KB", NdsHeapFree() / 1024);
+        {
+            char b[64];
+            NdsTopUpd(b, sizeof(b));
+            row("U:%s", b);
+            NdsTopDraw(b, sizeof(b));
+            row("D:%s", b);
+        }
     }
     else if (page == 1) {
         row("RSDKv4 DS 2/3: audio");

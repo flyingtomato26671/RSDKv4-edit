@@ -54,3 +54,27 @@ extern "C" const char *NdsLogLine(int back) // 0 = newest
     if (back >= NDS_LOG_LINES || back >= s_logN) return "";
     return s_log[(s_logN - 1 - back) % NDS_LOG_LINES];
 }
+
+#include "ndsdraw.hpp"
+// The three types with most ticks in `arr` (last frame): "name:ticks" lines into buf
+static void Top3(const uint32_t *arr, char *buf, int n)
+{
+    int best[3] = { -1, -1, -1 };
+    for (int t = 1; t < 256; ++t) {
+        if (!arr[t])
+            continue;
+        for (int k = 0; k < 3; ++k) {
+            if (best[k] < 0 || arr[t] > arr[best[k]]) {
+                for (int j = 2; j > k; --j) best[j] = best[j - 1];
+                best[k] = t;
+                break;
+            }
+        }
+    }
+    int o = 0;
+    for (int k = 0; k < 3 && best[k] >= 0 && o < n - 1; ++k) o += snprintf(buf + o, n - o, "%.11s:%lu ", typeNames[best[k]], (unsigned long)arr[best[k]]);
+    if (o == 0 && n > 0) buf[0] = 0;
+}
+extern "C" uint32_t NdsTkLogic(void) { return g_ndsTkLogic; }
+extern "C" void NdsTopUpd(char *buf, int n) { Top3(g_ndsTypeUpd, buf, n); }
+extern "C" void NdsTopDraw(char *buf, int n) { Top3(g_ndsTypeDraw, buf, n); }

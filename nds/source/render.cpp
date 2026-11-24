@@ -127,6 +127,7 @@ bool PS1TileSetLoad(const char *folder, uint8_t *pal768)
             tilesetGFXData[i] = 0;
     CloseFile();
     NdsOamFlush();
+    NdsTypeCacheReset();
     HwReset(); // new tileset: the hardware tile pool starts over
     return true;
 }
@@ -700,6 +701,7 @@ void DrawStageGFX()
     }
     g_ndsFlick++;
     NdsOamBegin();
+    memset(g_ndsTypeDraw, 0, sizeof(g_ndsTypeDraw));
     g_ndsTkClear = Ticks() - t0;
 
     if (tLayerMidPoint < 3) {

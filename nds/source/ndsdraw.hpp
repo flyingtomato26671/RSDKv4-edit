@@ -40,3 +40,18 @@ void NdsOamEnd(int priority);
 void NdsOamFlush();
 extern uint16_t g_ndsOam[128 * 4];
 extern volatile uint32_t g_ndsOamFallback;
+
+// Profile (ARM9 ticks, 33.5 MHz): per object type, this frame's update scripts and draw scripts; logic = the whole ProcessObjects
+static inline uint32_t NdsTicksNow()
+{
+    volatile uint16_t *t = (volatile uint16_t *)0x04000100;
+    uint32_t hi, lo;
+    do {
+        hi = t[2];
+        lo = t[0];
+    } while (hi != t[2]);
+    return (hi << 16) | lo;
+}
+extern uint32_t g_ndsTypeUpd[256], g_ndsTypeDraw[256];
+extern volatile uint32_t g_ndsTkLogic;
+void NdsTypeCacheReset();
