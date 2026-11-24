@@ -32,7 +32,10 @@ struct NdsHwFrame {
 extern NdsHwFrame g_ndsHw;
 extern volatile char g_ndsPassInfo[8];
 extern volatile char g_ndsHudNames[96];
-extern volatile uint32_t g_ndsSwTiles, g_ndsFillCols;
+extern volatile uint32_t g_ndsSwTiles, g_ndsFillCols, g_ndsBlitTicks, g_ndsBlitCount, g_ndsBlitPix;
+extern volatile uint32_t g_ndsSfxLoaded, g_ndsSfxFail, g_ndsSfxPlays;
+extern char g_ndsMusPath[48];
+extern int g_ndsMusRes, g_ndsMusTrack;
 extern volatile uint32_t g_ndsTkClear, g_ndsTkTiles, g_ndsTkObj;
 extern volatile uint32_t g_ndsHwFrames, g_ndsSwFrames, g_ndsHwTiles, g_ndsHwFail;
 }
@@ -155,6 +158,9 @@ int main(void)
             printf("(16 = full speed, per 16 frames)\n");
             printf("ticks last:%lu max:%lu\ndraw ticks:%lu\n", (unsigned long)lastT, (unsigned long)maxT, (unsigned long)NdsRenderTicks());
             printf("clear:%lu tiles:%lu obj:%lu\n", (unsigned long)g_ndsTkClear, (unsigned long)g_ndsTkTiles, (unsigned long)g_ndsTkObj);
+            printf("blit:%lu x%lu px:%lu\n", (unsigned long)g_ndsBlitTicks, (unsigned long)g_ndsBlitCount, (unsigned long)g_ndsBlitPix);
+            printf("sfx ok:%lu bad:%lu pl:%lu\n", (unsigned long)g_ndsSfxLoaded, (unsigned long)g_ndsSfxFail, (unsigned long)g_ndsSfxPlays);
+            printf("mus t%d r%d %s\n", g_ndsMusTrack, g_ndsMusRes, g_ndsMusPath);
             printf("hud:%s\n", (const char *)g_ndsHudNames);
             printf("passes:%c%c%c%c\n", g_ndsPassInfo[0], g_ndsPassInfo[1], g_ndsPassInfo[2], g_ndsPassInfo[3]);
             printf("swTiles:%lu fillCols:%lu\n", (unsigned long)g_ndsSwTiles, (unsigned long)g_ndsFillCols);

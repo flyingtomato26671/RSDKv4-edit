@@ -10,6 +10,7 @@ uint16_t *g_ndsDst = nullptr;
 byte graphicData[GFXDATA_SIZE]; // the stage's sprite sheets (8-bit)
 static int s_clearIndex = 0;
 static bool s_drawn = false;      // a frame was drawn since main last took it (a paused game draws nothing)
+extern volatile uint32_t g_ndsBlitTicks, g_ndsBlitCount, g_ndsBlitPix; // sprites.cpp
 volatile uint32_t g_ndsRenderTicks = 0;
 volatile uint32_t g_ndsTkClear = 0, g_ndsTkTiles = 0, g_ndsTkObj = 0; // split of the draw: bitmap clear / tile passes / object lists // ARM9 ticks (33.5 MHz) DrawStageGFX took last
 
@@ -684,6 +685,7 @@ void DrawStageGFX()
     uint32_t fill      = s_hwMode ? 0 : (bgc | (bgc << 16)); // hardware frame: the bitmap is a transparent sprite layer
     s_tkTiles = s_tkObj = 0;
     g_ndsSwTiles = g_ndsFillCols = 0;
+    g_ndsBlitTicks = g_ndsBlitCount = g_ndsBlitPix = 0;
     if (!s_hwMode || s_allDirty[s_page]) {
         ClearWords((uint32_t *)g_ndsDst, fill, WIN_H * 256 / 2);
         ResetDirty(s_page);

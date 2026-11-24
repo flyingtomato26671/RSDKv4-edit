@@ -26,6 +26,17 @@ static inline bool ClipToWindow(int &x, int &y, int &w, int &h, int &sx, int &sy
 
 // ---- HUD placement: the engine lays the HUD out for 320x240; the DS window shows x 32..287, y 24..215. Sprites drawn by the
 // "HUD" object (draw lists 5 and 6) are moved 24 px inward from the nearest corner so score / time / rings / lives stay visible.
+volatile uint32_t g_ndsBlitTicks = 0, g_ndsBlitCount = 0, g_ndsBlitPix = 0; // sprite pixel work this frame (diagnostic)
+static inline uint32_t BlitTicks()
+{
+    volatile uint16_t *t = (volatile uint16_t *)0x04000100;
+    uint32_t hi, lo;
+    do {
+        hi = t[2];
+        lo = t[0];
+    } while (hi != t[2]);
+    return (hi << 16) | lo;
+}
 static bool s_hudShift = false;
 volatile char g_ndsHudNames[96]; // names of the objects drawn in lists 5 / 6 this frame (diagnostic)
 static bool NameHas(const char *n, const char *sub)
@@ -126,7 +137,11 @@ static void SpriteBlit(int XPos, int YPos, int width, int height, int sprX, int 
     const byte *sheet = &graphicData[surface->dataPosition];
     if (ink == INK_PLAIN) {
         NdsMarkDirty(x - WIN_X0, y - WIN_Y0, x - WIN_X0 + w, y - WIN_Y0 + h);
+        const uint32_t tb = BlitTicks();
         BlitPlain(sheet, surface->width, sprX, sprY, W, H, fx, fy, x, y, w, h, ox, oy);
+        g_ndsBlitTicks = g_ndsBlitTicks + (BlitTicks() - tb);
+        g_ndsBlitCount = g_ndsBlitCount + 1;
+        g_ndsBlitPix   = g_ndsBlitPix + w * h;
         return;
     }
     for (int r = 0; r < h; ++r) {

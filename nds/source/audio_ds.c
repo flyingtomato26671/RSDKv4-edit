@@ -42,7 +42,8 @@ static int s_id = -1, s_loop = 0, s_paused = 0, s_vol = 127;
 static uint32_t s_total, s_loopStart, s_dataPos;    // samples in the file, loop start (samples), file offset of the data
 static uint64_t s_elapsed, s_written, s_endAbs;     // bus ticks played, samples written to the ring, sample where silence begins
 static uint32_t s_lastT;
-static int s_eof;
+static int s_eof, s_lastRes = 0;
+int NdsMusicLastResult(void) { return s_lastRes; }
 
 // Reads n samples (wrapping to the loop start at the end of the file) into the ring at absolute position s_written.
 static void MusFill(int n)
@@ -101,12 +102,15 @@ int NdsMusicStart(const char *path, int loop, unsigned loopPoint, int vol)
 {
     NdsMusicStop();
     s_f = fopen(path, "rb");
-    if (!s_f)
+    if (!s_f) {
+        s_lastRes = 0;
         return 0;
+    }
     uint32_t hdr[4];
     if (fread(hdr, 4, 4, s_f) != 4 || hdr[0] != 0x314D5344u /* "DSM1" */ || hdr[1] == 0) {
         fclose(s_f);
-        s_f = NULL;
+        s_f       = NULL;
+        s_lastRes = -1;
         return 0;
     }
     s_total     = hdr[1];
@@ -117,6 +121,7 @@ int NdsMusicStart(const char *path, int loop, unsigned loopPoint, int vol)
     s_loop = loop;
     s_vol  = vol;
     MusStartPlayback();
+    s_lastRes = s_id >= 0 ? 1 : -2; // -2: no free hardware channel
     return s_id >= 0;
 }
 

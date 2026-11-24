@@ -10,6 +10,7 @@ void NdsSfxStop(int id);
 void NdsSfxPan(int id, int vol, int pan);
 uint32_t NdsTicks(void);
 int NdsMusicStart(const char *path, int loop, unsigned loopPoint, int vol);
+int NdsMusicLastResult(void);
 void NdsMusicStop(void);
 void NdsMusicVolume(int vol);
 void NdsMusicPause(int pause);
@@ -30,7 +31,85 @@ static NdsSfx s_sfx[SFX_COUNT];
 static int s_hw[CHANNEL_COUNT];       // libnds sound id of each RSDK channel (-1: none)
 static uint32_t s_endT[CHANNEL_COUNT]; // bus tick when a non-looping sample ends
 static int s_musicTrack = -1;
+char g_ndsMusPath[48];
+int g_ndsMusRes = 0, g_ndsMusTrack = -1; // last music request: 1 playing, 0 file missing, -1 bad header
 volatile uint32_t g_ndsSfxLoaded = 0, g_ndsSfxFail = 0, g_ndsSfxBytes = 0, g_ndsSfxPlays = 0;
+
+// The global SFX names and paths from GameConfig.bin (ids 0..globalSFXCount-1; the stage's follow). Upstream's InitAudioPlayback
+// calls it; without it the stage's SFX would take ids 0.. and every script would play the wrong sound.
+void LoadGlobalSfx()
+{
+    FileInfo info;
+    FileInfo infoStore;
+    char strBuffer[0x100];
+    byte fileBuffer = 0;
+    int fileBuffer2 = 0;
+
+    globalSFXCount = 0;
+
+    if (LoadFile("Data/Game/GameConfig.bin", &info)) {
+        infoStore = info;
+
+        FileRead(&fileBuffer, 1);
+        FileRead(strBuffer, fileBuffer);
+
+        FileRead(&fileBuffer, 1);
+        FileRead(strBuffer, fileBuffer);
+
+        byte buf[3];
+        for (int c = 0; c < 0x60; ++c) FileRead(buf, 3);
+
+        // Read Obect Names
+        byte objectCount = 0;
+        FileRead(&objectCount, 1);
+        for (byte o = 0; o < objectCount; ++o) {
+            FileRead(&fileBuffer, 1);
+            FileRead(&strBuffer, fileBuffer);
+        }
+
+        // Read Script Paths
+        for (byte s = 0; s < objectCount; ++s) {
+            FileRead(&fileBuffer, 1);
+            FileRead(&strBuffer, fileBuffer);
+        }
+
+        byte varCount = 0;
+        FileRead(&varCount, 1);
+        for (byte v = 0; v < varCount; ++v) {
+            // Read Variable Name
+            FileRead(&fileBuffer, 1);
+            FileRead(&strBuffer, fileBuffer);
+
+            // Read Variable Value
+            FileRead(&fileBuffer2, 4);
+        }
+
+        // Read SFX
+        FileRead(&fileBuffer, 1);
+        globalSFXCount = fileBuffer;
+        for (byte s = 0; s < globalSFXCount; ++s) { // SFX Names
+            FileRead(&fileBuffer, 1);
+            FileRead(&strBuffer, fileBuffer);
+            strBuffer[fileBuffer] = 0;
+
+            SetSfxName(strBuffer, s);
+        }
+        for (byte s = 0; s < globalSFXCount; ++s) { // SFX Paths
+            FileRead(&fileBuffer, 1);
+            FileRead(&strBuffer, fileBuffer);
+            strBuffer[fileBuffer] = 0;
+
+            GetFileInfo(&infoStore);
+            CloseFile();
+            LoadSfx(strBuffer, s);
+            SetFileInfo(&infoStore);
+        }
+
+        CloseFile();
+    }
+
+    for (int i = 0; i < CHANNEL_COUNT; ++i) sfxChannels[i].sfxID = -1;
+}
 
 int InitAudioPlayback()
 {
@@ -40,6 +119,7 @@ int InitAudioPlayback()
         sfxChannels[c].sfxID  = -1;
     }
     audioEnabled = true;
+    LoadGlobalSfx();
     return 1;
 }
 
@@ -262,7 +342,15 @@ bool PlayMusic(int track, int startPos)
     TrackPath(musicTracks[track].fileName, path);
     musicStartPos = startPos;
     int vol       = 127 * bgmVolume / MAX_VOLUME * masterVolume / MAX_VOLUME;
-    if (!NdsMusicStart(path, musicTracks[track].trackLoop, musicTracks[track].loopPoint, vol)) {
+    {
+        int n = 0;
+        for (; path[n] && n < 47; ++n) g_ndsMusPath[n] = path[n];
+        g_ndsMusPath[n] = 0;
+        g_ndsMusTrack   = track;
+    }
+    bool started = NdsMusicStart(path, musicTracks[track].trackLoop, musicTracks[track].loopPoint, vol);
+    g_ndsMusRes  = NdsMusicLastResult();
+    if (!started) {
         musicStatus  = MUSIC_STOPPED;
         s_musicTrack = -1;
         return false;
