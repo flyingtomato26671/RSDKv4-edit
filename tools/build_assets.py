@@ -119,6 +119,8 @@ def main():
     else:
         copy_tree(sdata, data, ['*.gif', '*.wav', '*.ogg', '.DS_Store', 'Game/Menu/', 'Game/Models/', 'Stages/ZoneM/'])
         copy_tree(sbc, os.path.join(iso, 'Bytecode'), ['ZoneM.bin', '.DS_Store'])
+    if a.ds:  # music: .ogg -> .dsm (16-bit mono 22 kHz PCM that the DS streams from the SD card)
+        run('1 music', [PY, os.path.join(HERE, 'ds', 'convert_audio.py'), os.path.join(data, 'Music')], env=env)
     bc = os.path.join(iso, 'Bytecode')
     if a.ds:  # the PS1 patches (natives for the PS1's CPU) check every script against one exact build of the data; the DS runs the original bytecode
         print('[1 scripts] skipped on the DS (original bytecode)', flush=True)

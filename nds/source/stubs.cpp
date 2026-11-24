@@ -32,19 +32,6 @@ int globalSFXCount = 0, stageSFXCount = 0;
 ChannelInfo sfxChannels[CHANNEL_COUNT];
 SFXInfo sfxList[SFX_COUNT];
 char sfxNames[SFX_COUNT][0x20];
-int InitAudioPlayback() { return 1; }
-void LoadSfx(char *, byte) {}
-void PlaySfx(int, bool) {}
-void SetSfxAttributes(int, int, sbyte) {}
-void SetSfxName(const char *, int) {}
-bool PlayMusic(int, int) { return false; }
-void SetMusicTrack(const char *, byte, bool, uint) {}
-void SwapMusicTrack(const char *, byte, uint, uint) {}
-void PS1MusicPause(bool) {}
-void PS1MusicStop() {}
-void PS1SfxChannelStop(int) {}
-void PS1SfxLoadStageBank() {}
-void PS1SfxReleaseStage() {}
 
 // ---- files / timing / loading (real: files.cpp)
 void PS1FsSetLoadFolder(const char *) {}

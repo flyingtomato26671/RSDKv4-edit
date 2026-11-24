@@ -12,7 +12,12 @@ extern "C" void NdsEngineInit(void)
 }
 extern "C" int NdsEngineReady(void) { return Engine.initialised ? 1 : 0; }
 extern "C" int NdsEngineMode(void) { return Engine.gameMode; }
-extern "C" void NdsEngineFrame(void) { Engine.RunFrame(); }
+extern "C" void NdsAudioFrame(void); // audio.cpp
+extern "C" void NdsEngineFrame(void)
+{
+    Engine.RunFrame();
+    NdsAudioFrame(); // ended sound effects, music volume, music ring refill
+}
 
 // Status lines for the sub screen: where the engine is.
 extern "C" void NdsEngineInfo(char *buf, int n)

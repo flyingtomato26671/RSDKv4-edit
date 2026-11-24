@@ -1,0 +1,315 @@
+// DS audio, engine side (no libnds here: audio_ds.c has it). Replaces the stubs: the engine's LoadSfx / PlaySfx / music API on
+// the DS hardware channels (played by the ARM7). SFX are the game's .wav files read at stage load and turned into mono
+// 8 / 16-bit samples in RAM; music is a .dsm file per track (tools/ds/convert_audio.py) streamed from the SD card.
+#include "RetroEngine.hpp"
+
+extern "C" {
+void NdsSndInit(void);
+int NdsSfxPlay(const void *data, int is16, int bytes, int freq, int vol, int pan, int loop);
+void NdsSfxStop(int id);
+void NdsSfxPan(int id, int vol, int pan);
+uint32_t NdsTicks(void);
+int NdsMusicStart(const char *path, int loop, unsigned loopPoint, int vol);
+void NdsMusicStop(void);
+void NdsMusicVolume(int vol);
+void NdsMusicPause(int pause);
+int NdsMusicUpdate(void);
+}
+
+bool audioEnabled = true;
+int musicStartPos = 0, musicRatio = 0;
+TrackInfo musicTracks[TRACK_COUNT];
+
+struct NdsSfx {
+    void *pcm;    // mono, signed 8 or 16 bit
+    int bytes;
+    int rate;
+    bool is16;
+};
+static NdsSfx s_sfx[SFX_COUNT];
+static int s_hw[CHANNEL_COUNT];       // libnds sound id of each RSDK channel (-1: none)
+static uint32_t s_endT[CHANNEL_COUNT]; // bus tick when a non-looping sample ends
+static int s_musicTrack = -1;
+volatile uint32_t g_ndsSfxLoaded = 0, g_ndsSfxFail = 0, g_ndsSfxBytes = 0, g_ndsSfxPlays = 0;
+
+int InitAudioPlayback()
+{
+    NdsSndInit();
+    for (int c = 0; c < CHANNEL_COUNT; ++c) {
+        s_hw[c]               = -1;
+        sfxChannels[c].sfxID  = -1;
+    }
+    audioEnabled = true;
+    return 1;
+}
+
+// ---- sound effects
+static void FreeSfx(int id)
+{
+    if (s_sfx[id].pcm)
+        free(s_sfx[id].pcm);
+    g_ndsSfxBytes = g_ndsSfxBytes - s_sfx[id].bytes;
+    s_sfx[id].pcm = nullptr;
+    s_sfx[id].bytes = 0;
+    sfxList[id].loaded = false;
+}
+
+static bool ReadWav(const char *path, int id)
+{
+    FileInfo info;
+    if (!LoadFile(path, &info))
+        return false;
+    byte h[12];
+    FileRead(h, 12);
+    if (h[0] != 'R' || h[1] != 'I' || h[2] != 'F' || h[3] != 'F') {
+        CloseFile();
+        return false;
+    }
+    int pos = 12, fmtTag = 0, channels = 1, rate = 22050, bits = 16, dataLen = 0, dataPos = 0;
+    for (int guard = 0; guard < 16; ++guard) {
+        byte ck[8];
+        SetFilePosition(pos);
+        FileRead(ck, 8);
+        int size = ck[4] | (ck[5] << 8) | (ck[6] << 16) | (ck[7] << 24);
+        if (ck[0] == 'f' && ck[1] == 'm' && ck[2] == 't') {
+            byte f[16];
+            FileRead(f, 16);
+            fmtTag   = f[0] | (f[1] << 8);
+            channels = f[2] | (f[3] << 8);
+            rate     = f[4] | (f[5] << 8) | (f[6] << 16) | (f[7] << 24);
+            bits     = f[14] | (f[15] << 8);
+        }
+        else if (ck[0] == 'd' && ck[1] == 'a' && ck[2] == 't' && ck[3] == 'a') {
+            dataLen = size;
+            dataPos = pos + 8;
+            break;
+        }
+        pos += 8 + size + (size & 1);
+    }
+    if (fmtTag != 1 || !dataLen || channels < 1 || channels > 2 || (bits != 8 && bits != 16)) {
+        CloseFile();
+        return false;
+    }
+    const int bytesPer = bits / 8, frames = dataLen / (bytesPer * channels);
+    const int outBytes = frames * bytesPer;
+    byte *out          = (byte *)malloc(outBytes + 4);
+    if (!out) {
+        CloseFile();
+        return false;
+    }
+    SetFilePosition(dataPos);
+    byte buf[512];
+    int done = 0;
+    while (done < frames) {
+        int n = frames - done;
+        if (n > 512 / (bytesPer * channels))
+            n = 512 / (bytesPer * channels);
+        FileRead(buf, n * bytesPer * channels);
+        for (int i = 0; i < n; ++i) {
+            if (bits == 8) { // unsigned -> signed, stereo averaged
+                int v = buf[i * channels] - 128;
+                if (channels == 2)
+                    v = (v + buf[i * 2 + 1] - 128) / 2;
+                ((int8_t *)out)[done + i] = (int8_t)v;
+            }
+            else {
+                int v = (int16_t)(buf[i * 2 * channels] | (buf[i * 2 * channels + 1] << 8));
+                if (channels == 2)
+                    v = (v + (int16_t)(buf[i * 4 + 2] | (buf[i * 4 + 3] << 8))) / 2;
+                ((int16_t *)out)[done + i] = (int16_t)v;
+            }
+        }
+        done += n;
+    }
+    CloseFile();
+    s_sfx[id].pcm   = out;
+    s_sfx[id].bytes = outBytes;
+    s_sfx[id].rate  = rate;
+    s_sfx[id].is16  = bits == 16;
+    g_ndsSfxBytes   = g_ndsSfxBytes + outBytes;
+    return true;
+}
+
+void LoadSfx(char *filePath, byte sfxID)
+{
+    if (sfxID >= SFX_COUNT)
+        return;
+    if (s_sfx[sfxID].pcm)
+        FreeSfx(sfxID);
+    StrCopy(sfxList[sfxID].name, filePath);
+    char path[0x80];
+    StrCopy(path, "Data/SoundFX/");
+    StrAdd(path, filePath);
+    if (ReadWav(path, sfxID) || ReadWav(filePath, sfxID)) {
+        sfxList[sfxID].loaded = true;
+        g_ndsSfxLoaded        = g_ndsSfxLoaded + 1;
+    }
+    else {
+        sfxList[sfxID].loaded = false;
+        g_ndsSfxFail          = g_ndsSfxFail + 1;
+    }
+}
+
+void PS1SfxLoadStageBank() {}
+void PS1SfxReleaseStage()
+{
+    for (int c = 0; c < CHANNEL_COUNT; ++c) PS1SfxChannelStop(c);
+    for (int i = globalSFXCount; i < SFX_COUNT; ++i)
+        if (s_sfx[i].pcm)
+            FreeSfx(i);
+}
+
+static int SfxVolume() { return 127 * sfxVolume / MAX_VOLUME; }
+static int SfxPan(int pan) { return 64 + pan * 63 / 100; } // RSDK pan -100..100 -> 0..127
+
+void PS1SfxChannelStop(int c)
+{
+    if ((uint)c >= CHANNEL_COUNT)
+        return;
+    if (s_hw[c] >= 0)
+        NdsSfxStop(s_hw[c]);
+    s_hw[c] = -1;
+}
+
+void PlaySfx(int sfx, bool loop)
+{
+    if ((uint)sfx >= SFX_COUNT || !sfxList[sfx].loaded || !s_sfx[sfx].pcm)
+        return;
+    int ch = -1;
+    for (int c = 0; c < CHANNEL_COUNT; ++c) {
+        if (sfxChannels[c].sfxID == sfx || sfxChannels[c].sfxID == -1) {
+            ch = c;
+            break;
+        }
+    }
+    if (ch < 0)
+        return;
+    PS1SfxChannelStop(ch); // the same sample restarts
+    ChannelInfo *info  = &sfxChannels[ch];
+    info->sfxID        = sfx;
+    info->samplePtr    = nullptr;
+    info->sampleLength = s_sfx[sfx].bytes;
+    info->loopSFX      = loop;
+    info->pan          = 0;
+    NdsSfx &s          = s_sfx[sfx];
+    int id             = NdsSfxPlay(s.pcm, s.is16, s.bytes, s.rate, SfxVolume(), 64, loop);
+    s_hw[ch]           = id;
+    g_ndsSfxPlays      = g_ndsSfxPlays + 1;
+    if (id < 0) { // no free hardware channel
+        info->sfxID = -1;
+        return;
+    }
+    const int samples = s.bytes / (s.is16 ? 2 : 1);
+    s_endT[ch]        = NdsTicks() + (uint32_t)(((uint64_t)samples * 33513982u) / (uint32_t)(s.rate ? s.rate : 22050));
+}
+
+void SetSfxAttributes(int sfx, int loopCount, sbyte pan)
+{
+    for (int c = 0; c < CHANNEL_COUNT; ++c) {
+        if (sfxChannels[c].sfxID == sfx) {
+            sfxChannels[c].loopSFX = loopCount == -1 ? sfxChannels[c].loopSFX : loopCount;
+            sfxChannels[c].pan     = pan;
+            NdsSfxPan(s_hw[c], SfxVolume(), SfxPan(pan));
+            return;
+        }
+    }
+}
+
+void SetSfxName(const char *sfxName, int sfxID)
+{
+    if ((uint)sfxID >= SFX_COUNT)
+        return;
+    int a = 0, b = 0;
+    while (sfxName[a]) {
+        if (sfxName[a] != ' ')
+            sfxNames[sfxID][b++] = sfxName[a];
+        ++a;
+    }
+    sfxNames[sfxID][b] = 0;
+}
+
+// ---- music
+static void TrackPath(const char *file, char *out)
+{
+    StrCopy(out, file); // "Data/Music/X.ogg" -> "Data/Music/X.dsm"
+    int n = StrLength(out);
+    while (n > 0 && out[n - 1] != '.' && out[n - 1] != '/') --n;
+    if (n > 0 && out[n - 1] == '.')
+        out[n - 1] = 0;
+    StrAdd(out, ".dsm");
+}
+
+void SetMusicTrack(const char *filePath, byte trackID, bool loop, uint loopPoint)
+{
+    if (trackID >= TRACK_COUNT)
+        return;
+    TrackInfo *track = &musicTracks[trackID];
+    StrCopy(track->fileName, "Data/Music/");
+    StrAdd(track->fileName, filePath);
+    track->trackLoop = loop;
+    track->loopPoint = loopPoint;
+}
+
+bool PlayMusic(int track, int startPos)
+{
+    if (!audioEnabled || (uint)track >= TRACK_COUNT || !musicTracks[track].fileName[0]) {
+        NdsMusicStop();
+        musicStatus  = MUSIC_STOPPED;
+        s_musicTrack = -1;
+        return false;
+    }
+    char path[0x60];
+    TrackPath(musicTracks[track].fileName, path);
+    musicStartPos = startPos;
+    int vol       = 127 * bgmVolume / MAX_VOLUME * masterVolume / MAX_VOLUME;
+    if (!NdsMusicStart(path, musicTracks[track].trackLoop, musicTracks[track].loopPoint, vol)) {
+        musicStatus  = MUSIC_STOPPED;
+        s_musicTrack = -1;
+        return false;
+    }
+    musicStatus  = MUSIC_PLAYING;
+    s_musicTrack = track;
+    return true;
+}
+
+void SwapMusicTrack(const char *filePath, byte trackID, uint loopPoint, uint ratio)
+{
+    if (StrLength(filePath) <= 0) {
+        StopMusic(true);
+        return;
+    }
+    if (trackID >= TRACK_COUNT)
+        return;
+    TrackInfo *track = &musicTracks[trackID];
+    StrCopy(track->fileName, "Data/Music/");
+    StrAdd(track->fileName, filePath);
+    track->trackLoop = true;
+    track->loopPoint = loopPoint;
+    musicRatio       = ratio;
+    PlayMusic(trackID, 1);
+}
+
+void PS1MusicPause(bool pause) { NdsMusicPause(pause); }
+void PS1MusicStop() { NdsMusicStop(); }
+
+// Once per frame (main.cpp): frees channels whose sample ended, applies the music volume, keeps the music ring full.
+extern "C" void NdsAudioFrame(void)
+{
+    if (!audioEnabled)
+        return;
+    const uint32_t now = NdsTicks();
+    for (int c = 0; c < CHANNEL_COUNT; ++c) {
+        const int id = sfxChannels[c].sfxID;
+        if (id < 0)
+            continue;
+        if (!sfxChannels[c].loopSFX && (int32_t)(now - s_endT[c]) >= 0)
+            StopSfx(id);
+    }
+    if (musicStatus == MUSIC_PLAYING) {
+        NdsMusicVolume(127 * bgmVolume / MAX_VOLUME * masterVolume / MAX_VOLUME);
+        if (!NdsMusicUpdate())
+            musicStatus = MUSIC_STOPPED;
+    }
+    else if (musicStatus == MUSIC_PAUSED)
+        NdsMusicUpdate();
+}
