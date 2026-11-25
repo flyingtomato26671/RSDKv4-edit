@@ -27,6 +27,9 @@ struct VertexT {
 };
 static VertexT *s_vt           = nullptr;
 static DrawListEntry3D *s_tmp  = nullptr;
+char g_ndsS3dFolder[20] = "-";
+volatile int g_ndsS3dStatus = 0; // 0 never called, 1 folder not a special stage, 2 allocation failed, 3 ready
+volatile uint32_t g_ndsS3dCalls = 0;
 volatile uint32_t g_ndsS3dQuads = 0, g_ndsS3dFaces = 0, g_ndsS3dSkipped = 0;
 
 #define PS1_S2_SMALL
@@ -46,7 +49,19 @@ void PS1Scene3DPrepare(const char *folder)
     drawList3D = s_tmp = nullptr;
     g_ps1VtxCap = g_ps1FaceCap = 0;
     vertexCount = faceCount = 0;
-    if (!folder || strncmp(folder, "Special", 7) != 0)
+    g_ndsS3dCalls = g_ndsS3dCalls + 1;
+    {
+        int n = 0;
+        for (; folder && folder[n] && n < 19; ++n) g_ndsS3dFolder[n] = folder[n];
+        g_ndsS3dFolder[n] = 0;
+    }
+    bool special = false;
+    for (int i = 0; folder && folder[i]; ++i)
+        if ((folder[i] | 32) == 's' && (folder[i + 1] | 32) == 'p' && (folder[i + 2] | 32) == 'e' && (folder[i + 3] | 32) == 'c'
+            && (folder[i + 4] | 32) == 'i')
+            special = true;
+    g_ndsS3dStatus = 1;
+    if (!special)
         return; // (a list of stages: Data/Game/PS1Scene3D.bin, later; Sonic 1's special stages too)
     Vertex *v = (Vertex *)calloc(VERTEXBUFFER_SIZE, sizeof(Vertex));
     Face *f   = (Face *)calloc(FACEBUFFER_SIZE, sizeof(Face));
@@ -55,6 +70,7 @@ void PS1Scene3DPrepare(const char *folder)
     DrawListEntry3D *m = (DrawListEntry3D *)calloc(FACEBUFFER_SIZE, sizeof(DrawListEntry3D));
     if (!v || !f || !t || !d || !m) {
         free(v); free(f); free(t); free(d); free(m);
+        g_ndsS3dStatus = 2;
         return;
     }
     vertexBuffer = v;
@@ -64,6 +80,7 @@ void PS1Scene3DPrepare(const char *folder)
     s_tmp        = m;
     g_ps1VtxCap  = VERTEXBUFFER_SIZE;
     g_ps1FaceCap = FACEBUFFER_SIZE;
+    g_ndsS3dStatus = 3;
 }
 
 // The ARM9's divider (32 / 32 -> 32 in ~18 cycles; the software division of the library is several times slower)
