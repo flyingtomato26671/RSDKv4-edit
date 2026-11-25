@@ -12318,6 +12318,17 @@ def main():
     if '--game' in args:
         i = args.index('--game'); game = args[i + 1]; del args[i:i + 2]
     bcdir = args[0]
+    if '--dump' in args:  # diagnosis: --dump fn 0 | --dump sub "Stage Setup" 0  -> the GlobalCode listing the patches compare with
+        i = args.index('--dump')
+        names, vars_ = bs.tables(3)
+        path = os.path.join(bcdir, 'GlobalCode.bin')
+        code, _ = bs.blocks(open(path, 'rb').read(), 0)
+        if args[i + 1] == 'fn':
+            start = bs.load(path)[4][int(args[i + 2])][0]
+        else:
+            start = bs.load(path)[2][global_objects(bcdir).index(args[i + 2])][int(args[i + 3])]
+        print('\n'.join('%d: %s' % (n, l) for n, l in enumerate(listing(instructions(code, start, names, vars_)))))
+        return
     only = os.environ.get('PS1_PATCH_ONLY')  # tests: e.g. "oscillate" (a comma list of the patch names below)
     if game == '1':
         for name, fn in s1_patches():
