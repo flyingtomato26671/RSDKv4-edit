@@ -34,6 +34,7 @@ char g_ndsS3dFolder[20] = "-";
 volatile int g_ndsS3dStatus = 0; // 0 never called, 1 folder not a special stage, 2 allocation failed, 3 ready
 volatile uint32_t g_ndsS3dHeapUsed = 0, g_ndsS3dHeapArena = 0, g_ndsS3dHeapLimit = 0;
 volatile uint32_t g_ndsS3dFreeKB = 0, g_ndsS3dFail = 0; // heap free (KB) at the call, which allocation failed (1..5)
+volatile uint32_t g_ndsS3dTkT = 0, g_ndsS3dTkS = 0, g_ndsS3dTkD = 0, g_ndsS3dQFrame = 0; // last call's ticks: transform, sort, draw
 volatile uint32_t g_ndsS3dCalls = 0;
 volatile uint32_t g_ndsS3dQuads = 0, g_ndsS3dFaces = 0, g_ndsS3dSkipped = 0;
 
@@ -130,6 +131,7 @@ void TransformVertexBuffer()
 {
     if (!g_ps1VtxCap)
         return;
+    const uint32_t tk0 = NdsTicksNow();
     matFinal = matWorld;
     MatrixMultiply(&matFinal, &matView);
     const int m00 = matFinal.values[0][0], m10 = matFinal.values[1][0], m20 = matFinal.values[2][0], m30 = matFinal.values[3][0];
@@ -148,6 +150,7 @@ void TransformVertexBuffer()
             t.sy = ClampS(SCREEN_CENTERY - HwDiv(py * t.y, t.z) - WIN_Y0);
         }
     }
+    g_ndsS3dTkT = NdsTicksNow() - tk0;
 }
 
 // Stable merge sort, descending by depth (ties keep their order, as upstream's bubble sort does)
@@ -339,6 +342,12 @@ void Draw3DScene(int spriteSheetID)
 
 void PS1Draw3DSceneOT(int spriteSheetID)
 {
+    const uint32_t t0 = NdsTicksNow();
     Sort3DDrawList();
+    const uint32_t t1 = NdsTicksNow();
+    const uint32_t q0 = g_ndsS3dQuads;
     Draw3DScene(spriteSheetID);
+    g_ndsS3dTkS = t1 - t0;
+    g_ndsS3dTkD = NdsTicksNow() - t1;
+    g_ndsS3dQFrame = g_ndsS3dQuads - q0;
 }
