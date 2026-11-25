@@ -34,7 +34,9 @@ uint32_t NdsTicks(void) { return cpuGetTiming(); }
 // ---- music
 #define MUS_RATE 22050
 #define MUS_RING 16384                              // samples (32 KB)
-#define MUS_REFILL 2048                             // refill when this many samples are free
+#define MUS_REFILL 1024                             // refill when this many samples are free
+#define MUS_PREFILL 8192                            // samples read before the music starts (the rest of the ring is silence until refilled)
+#define MUS_MAXFILL 2048                            // most samples read in one frame: an SD read is a stall for the whole frame
 #define MUS_TPS (2 * (16777216 / MUS_RATE))         // bus ticks per sample
 static int16_t s_ring[MUS_RING] __attribute__((aligned(32)));
 static FILE *s_f = NULL;
@@ -81,7 +83,9 @@ static void MusStartPlayback(void)
     s_written = 0;
     s_elapsed = 0;
     s_eof     = 0;
-    MusFill(MUS_RING);
+    memset(s_ring, 0, sizeof(s_ring));
+    MusFill(MUS_PREFILL);
+    DC_FlushRange(s_ring, sizeof(s_ring));
     s_id    = soundPlaySample(s_ring, SoundFormat_16Bit, MUS_RING * 2, MUS_RATE, (u8)s_vol, 64, true, 0);
     s_lastT = cpuGetTiming();
 }
@@ -168,7 +172,11 @@ int NdsMusicUpdate(void)
         return 1;
     }
     uint64_t freeS = played + MUS_RING - 512 - s_written; // 512 samples of margin: the hardware is a little ahead of our clock
-    if (!s_eof && freeS >= MUS_REFILL)
-        MusFill((int)(freeS & ~255ull));
+    if (!s_eof && freeS >= MUS_REFILL) {
+        int n = (int)(freeS & ~255ull);
+        if (n > MUS_MAXFILL)
+            n = MUS_MAXFILL;
+        MusFill(n);
+    }
     return 1;
 }

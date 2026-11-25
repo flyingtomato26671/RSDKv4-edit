@@ -305,7 +305,7 @@ void PlaySfx(int sfx, bool loop)
         return;
     }
     const int samples = s.bytes / (s.is16 ? 2 : 1);
-    s_endT[ch]        = NdsTicks() + (uint32_t)(((uint64_t)samples * 33513982u) / (uint32_t)(s.rate ? s.rate : 22050));
+    s_endT[ch]        = NdsTicks() + (uint32_t)(((uint64_t)samples * 33513982u) / (uint32_t)(s.rate ? s.rate : 22050)) + 1000000u; // + 30 ms
 }
 
 void SetSfxAttributes(int sfx, int loopCount, sbyte pan)
@@ -415,8 +415,12 @@ extern "C" void NdsAudioFrame(void)
         const int id = sfxChannels[c].sfxID;
         if (id < 0)
             continue;
-        if (!sfxChannels[c].loopSFX && (int32_t)(now - s_endT[c]) >= 0)
-            StopSfx(id);
+        if (!sfxChannels[c].loopSFX && (int32_t)(now - s_endT[c]) >= 0) {
+            // The sample ended by itself on the ARM7: just free the engine's channel. A soundKill here could cut the tail of a
+            // sample whose end we estimated a little early, or kill another sound that got the same hardware channel meanwhile.
+            s_hw[c]              = -1;
+            sfxChannels[c].sfxID = -1;
+        }
     }
     if (musicStatus == MUSIC_PLAYING) {
         NdsMusicVolume(127 * bgmVolume / MAX_VOLUME * masterVolume / MAX_VOLUME);
