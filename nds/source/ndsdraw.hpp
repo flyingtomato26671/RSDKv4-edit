@@ -55,3 +55,4 @@ static inline uint32_t NdsTicksNow()
 extern uint32_t g_ndsTypeUpd[256], g_ndsTypeDraw[256];
 extern volatile uint32_t g_ndsTkLogic;
 void NdsTypeCacheReset();
+extern int g_ndsScriptBright;

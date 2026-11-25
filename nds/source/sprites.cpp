@@ -225,6 +225,14 @@ void DrawRectangle(int XPos, int YPos, int width, int height, int R, int G, int 
     if (A > 0xFF)
         A = 0xFF;
     int sx = 0, sy = 0;
+    if (A > 0 && A < 0xFF && XPos <= WIN_X0 && YPos <= WIN_Y0 && XPos + width >= WIN_X0 + WIN_W && YPos + height >= WIN_Y0 + WIN_H) {
+        const bool black = R < 8 && G < 8 && B < 8, white = R > 247 && G > 247 && B > 247;
+        if (black || white) { // a script's full-screen fade: the master brightness, not flicker (flashing is unsafe)
+            const int f = (A * 16 + 127) / 255;
+            g_ndsScriptBright = black ? -f : f;
+            return;
+        }
+    }
     HudShift(XPos, YPos);
     if (A <= 0 || !ClipToWindow(XPos, YPos, width, height, sx, sy))
         return;
@@ -266,6 +274,7 @@ void DrawTintRectangle(int XPos, int YPos, int width, int height)
 // ---- object draw lists (Script.cpp's draw events call the sprite functions above)
 uint32_t g_ndsTypeUpd[256], g_ndsTypeDraw[256];
 volatile uint32_t g_ndsTkLogic = 0;
+int g_ndsScriptBright = 0; // set by DrawRectangle for a full-screen black / white fade drawn by a script, read by DrawStageGFX
 // per type, computed once per stage: bit0 known, bit1 HUD, bit2 waterfall (string searches per object per frame were a cost)
 static uint8_t s_typeFlag[256];
 void NdsTypeCacheReset() { memset(s_typeFlag, 0, sizeof(s_typeFlag)); }

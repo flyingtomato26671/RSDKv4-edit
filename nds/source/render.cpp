@@ -701,6 +701,7 @@ void DrawStageGFX()
     }
     g_ndsFlick++;
     NdsOamBegin();
+    g_ndsScriptBright = 0;
     memset(g_ndsTypeDraw, 0, sizeof(g_ndsTypeDraw));
     g_ndsTkClear = Ticks() - t0;
 
@@ -732,7 +733,7 @@ void DrawStageGFX()
 
     g_ndsTkTiles = s_tkTiles;
     g_ndsTkObj   = s_tkObj;
-    g_ndsHw.bright = 0;
+    g_ndsHw.bright = s_hwMode ? g_ndsScriptBright : 0;
     if (fadeMode > 0) {
         const bool black = fadeR < 8 && fadeG < 8 && fadeB < 8, white = fadeR > 247 && fadeG > 247 && fadeB > 247;
         if (s_hwMode && (black || white)) { // master brightness covers tiles and sprites alike

@@ -52,7 +52,23 @@ extern volatile uint32_t g_ndsHwFrames, g_ndsSwFrames, g_ndsHwTiles, g_ndsHwFail
 extern uint16_t fullPalette[8][256]; // the engine's palettes (DS colours)
 
 static volatile unsigned g_vbl = 0;
-static void vblankCount(void) { g_vbl = g_vbl + 1; }
+// The per-line scroll DMAs (one entry per HBlank) are restarted every vblank: a frame that takes longer than one vblank (or a
+// pause) would otherwise let them run past the end of their table and scroll the backgrounds with garbage.
+static const uint32_t *volatile s_dmaTbl[2] = { 0, 0 };
+static void vblankCount(void)
+{
+    g_vbl = g_vbl + 1;
+    for (int i = 0; i < 2; i++) {
+        const uint32_t *t = s_dmaTbl[i];
+        if (!t)
+            continue;
+        DMA_CR(1 + i) = 0;
+        *(volatile uint32_t *)(0x04000010 + i * 4) = t[0]; // line 0's HOFS | VOFS << 16
+        DMA_SRC(1 + i)  = (uint32_t)(t + 1);
+        DMA_DEST(1 + i) = 0x04000010 + i * 4;
+        DMA_CR(1 + i)   = DMA_ENABLE | DMA_START_HBL | DMA_REPEAT | DMA_SRC_INC | DMA_DST_FIX | DMA_32_BIT | 1;
+    }
+}
 
 // ---- water: the engine's palette bank changes down the screen; the hardware tile backgrounds have one palette, so it is
 // switched in the HBlank before the line where the bank changes (VCOUNT interrupt).
@@ -88,6 +104,7 @@ static void applyHw(int bitmapBg)
     volatile uint16_t *hofs[2] = { &REG_BG0HOFS, &REG_BG1HOFS };
     volatile uint16_t *vofs[2] = { &REG_BG0VOFS, &REG_BG1VOFS };
     for (int i = 0; i < 2; i++) {
+        s_dmaTbl[i] = 0;
         DMA_CR(1 + i) = 0; // stop the previous frame's per-line scroll
         if (h.hw && h.used[i]) {
             // farther layer first: BG0 = priority 3, BG1 = 2, the extended BG2 = 1; the sprite bitmap (BG3) is 0
@@ -99,6 +116,7 @@ static void applyHw(int bitmapBg)
                 DMA_SRC(1 + i)  = (uint32_t)(h.table[i] + 1);
                 DMA_DEST(1 + i) = 0x04000010 + i * 4; // HOFS | VOFS << 16
                 DMA_CR(1 + i)   = DMA_ENABLE | DMA_START_HBL | DMA_REPEAT | DMA_SRC_INC | DMA_DST_FIX | DMA_32_BIT | 1;
+                s_dmaTbl[i]     = h.table[i];
             }
             videoBgEnable(i);
         }
