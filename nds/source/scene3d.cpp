@@ -39,6 +39,7 @@ volatile uint32_t g_ndsS3dFreeKB = 0, g_ndsS3dFail = 0; // heap free (KB) at the
 volatile uint32_t g_ndsS3dTkT = 0, g_ndsS3dTkS = 0, g_ndsS3dTkD = 0, g_ndsS3dQFrame = 0; // last call's ticks: transform, sort, draw
 int g_ndsS3dGpu = 1; // 1: the geometry engine transforms / projects / depth-sorts the path (L+R+Y toggles, for A/B); 0: the ARM9 does
 volatile int g_ndsS3dShift = 0, g_ndsS3dMaxCoord = 0; // vertices are sent >> shift (the engine's coordinates may not fit 16 bits)
+volatile uint32_t g_ndsS3dTOver = 0; // frames whose camera-space translation of the mesh centre did not fit 20.12
 volatile uint32_t g_ndsS3dRange = 0; // vertices sent to the geometry engine outside the 16-bit range (wrapped)
 volatile uint32_t g_ndsS3dCalls = 0;
 volatile uint32_t g_ndsS3dQuads = 0, g_ndsS3dFaces = 0, g_ndsS3dSkipped = 0;
@@ -353,10 +354,10 @@ void Draw3DScene(int spriteSheetID)
 // ---- the geometry engine's path: faces go to the DS 3D engine raw; only sprite faces and 2D faces are worked out here
 static volatile uint32_t *const GX_COLOR    = (volatile uint32_t *)0x04000480;
 static volatile uint32_t *const GX_VERTEX16 = (volatile uint32_t *)0x0400048C;
-static int s_gxShift = 0;
+static int s_gxShift = 0, s_gxOx = 0, s_gxOy = 0, s_gxOz = 0;
 static inline void GxVertex(const Vertex &v)
 {
-    const int x = v.x >> s_gxShift, y = v.y >> s_gxShift, z = v.z >> s_gxShift;
+    const int x = (v.x - s_gxOx) >> s_gxShift, y = (v.y - s_gxOy) >> s_gxShift, z = (v.z - s_gxOz) >> s_gxShift;
     if ((unsigned)(x + 32768) > 65535u || (unsigned)(y + 32768) > 65535u || (unsigned)(z + 32768) > 65535u)
         g_ndsS3dRange = g_ndsS3dRange + 1;
     *GX_VERTEX16 = ((uint32_t)(uint16_t)x) | ((uint32_t)y << 16);
@@ -412,15 +413,43 @@ static void Draw3DSceneGpu(int spriteSheetID)
     for (int i = 0; i < 3; ++i)
         for (int j = 0; j < 3; ++j) vals[i * 3 + j] = matFinal.values[i][j];
     for (int j = 0; j < 3; ++j) vals[9 + j] = matFinal.values[3][j];
-    // the coordinates the geometry engine receives are 16-bit: find how far the mesh reaches and halve until it fits
-    int maxc = 0;
+    const int m00 = vals[0], m10 = vals[3], m20 = vals[6], m30 = vals[9];
+    const int m01 = vals[1], m11 = vals[4], m21 = vals[7], m31 = vals[10];
+    const int m02 = vals[2], m12 = vals[5], m22 = vals[8], m32 = vals[11];
+    // The mesh is in world coordinates that reach ~700,000 while the geometry engine takes 16-bit vertices and 20.12 matrix
+    // entries (+-524,287, translation included). So: re-centre on the mesh's bounding box (the camera translation is adjusted
+    // by M * centre: same result in camera space), then halve the vertices until the half-extent fits 16 bits.
+    int mn[3] = { 0x7FFFFFFF, 0x7FFFFFFF, 0x7FFFFFFF }, mx[3] = { -0x7FFFFFFF, -0x7FFFFFFF, -0x7FFFFFFF };
     for (int i = 0; i < vertexCount && i < g_ps1VtxCap; ++i) {
         const Vertex &v = vertexBuffer[i];
-        int a = v.x < 0 ? -v.x : v.x, b = v.y < 0 ? -v.y : v.y, d = v.z < 0 ? -v.z : v.z;
-        if (b > a) a = b;
-        if (d > a) a = d;
-        if (a > maxc) maxc = a;
+        if (v.x < mn[0]) mn[0] = v.x;
+        if (v.x > mx[0]) mx[0] = v.x;
+        if (v.y < mn[1]) mn[1] = v.y;
+        if (v.y > mx[1]) mx[1] = v.y;
+        if (v.z < mn[2]) mn[2] = v.z;
+        if (v.z > mx[2]) mx[2] = v.z;
     }
+    if (vertexCount <= 0)
+        mn[0] = mn[1] = mn[2] = mx[0] = mx[1] = mx[2] = 0;
+    const int ox = (int)(((long long)mn[0] + mx[0]) >> 1), oy = (int)(((long long)mn[1] + mx[1]) >> 1), oz = (int)(((long long)mn[2] + mx[2]) >> 1);
+    int maxc = 0;
+    for (int k = 0; k < 3; ++k) {
+        const int h = (int)(((long long)mx[k] - mn[k] + 1) >> 1);
+        if (h > maxc) maxc = h;
+    }
+    // translation in camera space of the centre: T' = T + M * O (the engine's own >> 8 per term)
+    const int tx = (((ox * m00) >> 8) + ((oy * m10) >> 8) + ((oz * m20) >> 8)) + m30;
+    const int ty = (((ox * m01) >> 8) + ((oy * m11) >> 8) + ((oz * m21) >> 8)) + m31;
+    const int tz = (((ox * m02) >> 8) + ((oy * m12) >> 8) + ((oz * m22) >> 8)) + m32;
+    auto clampT = [](int v) { return v < -524287 ? -524287 : v > 524287 ? 524287 : v; };
+    if (tx != clampT(tx) || ty != clampT(ty) || tz != clampT(tz))
+        g_ndsS3dTOver = g_ndsS3dTOver + 1;
+    int gv[12];
+    for (int i = 0; i < 9; ++i) gv[i] = vals[i];
+    gv[9]  = clampT(tx);
+    gv[10] = clampT(ty);
+    gv[11] = clampT(tz);
+    s_gxOx = ox, s_gxOy = oy, s_gxOz = oz;
     int maxv = 1;
     for (int i = 0; i < 9; ++i) {
         const int a = vals[i] < 0 ? -vals[i] : vals[i];
@@ -431,10 +460,7 @@ static void Draw3DSceneGpu(int spriteSheetID)
     s_gxShift       = shift;
     g_ndsS3dShift   = shift;
     g_ndsS3dMaxCoord = maxc;
-    Nds3dGpuBegin(vals, projectionX, projectionY, shift);
-    const int m00 = vals[0], m10 = vals[3], m20 = vals[6], m30 = vals[9];
-    const int m01 = vals[1], m11 = vals[4], m21 = vals[7], m31 = vals[10];
-    const int m02 = vals[2], m12 = vals[5], m22 = vals[8], m32 = vals[11];
+    Nds3dGpuBegin(gv, projectionX, projectionY, shift);
 #define XFM_X(v) ((((v).x * m00) >> 8) + (((v).y * m10) >> 8) + (((v).z * m20) >> 8) + m30)
 #define XFM_Y(v) ((((v).x * m01) >> 8) + (((v).y * m11) >> 8) + (((v).z * m21) >> 8) + m31)
 #define XFM_Z(v) ((((v).x * m02) >> 8) + (((v).y * m12) >> 8) + (((v).z * m22) >> 8) + m32)

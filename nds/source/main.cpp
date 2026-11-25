@@ -25,7 +25,7 @@ extern int g_ps1FaceCap, faceCount, vertexCount;
 extern char g_ndsS3dFolder[];
 extern volatile int g_ndsS3dStatus;
 extern int g_ndsS3dGpu;
-extern volatile uint32_t g_ndsS3dRange;
+extern volatile uint32_t g_ndsS3dRange, g_ndsS3dTOver;
 extern volatile int g_ndsS3dShift, g_ndsS3dMaxCoord;
 extern volatile uint32_t g_ndsXformOam, g_ndsXformSw, g_ndsXformWhy, g_ndsXformSize;
 extern volatile uint32_t g_ndsS3dTkT, g_ndsS3dTkS, g_ndsS3dTkD, g_ndsS3dQFrame;
@@ -272,6 +272,7 @@ static void showStatus(int page, unsigned frame, unsigned sumV, unsigned maxV, u
         row("3D tk T:%lu S:%lu D:%lu", (unsigned long)g_ndsS3dTkT, (unsigned long)g_ndsS3dTkS, (unsigned long)g_ndsS3dTkD);
         row("3D vtx:%d quads/frame:%lu", vertexCount, (unsigned long)g_ndsS3dQFrame);
         row(" overflow:%lu shift:%d max:%d", (unsigned long)g_ndsS3dRange, g_ndsS3dShift, g_ndsS3dMaxCoord);
+        row(" T clamp:%lu", (unsigned long)g_ndsS3dTOver);
         row(" heap used:%lu arena:%lu lim:%lu", (unsigned long)g_ndsS3dHeapUsed, (unsigned long)g_ndsS3dHeapArena, (unsigned long)g_ndsS3dHeapLimit);
         row(" heap:%luKB failed alloc:%lu", (unsigned long)g_ndsS3dFreeKB, (unsigned long)g_ndsS3dFail);
         row("3D cap:%d faces:%d/%lu", g_ps1FaceCap, faceCount, (unsigned long)g_ndsS3dFaces);
