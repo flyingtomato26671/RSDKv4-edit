@@ -12,6 +12,7 @@
 #define OBJ_VRAM 0x06400000u
 #define OBJ_TILES 1024 // 8x8 8bpp tiles in VRAM E (64 KB); the tile boundary is 64 bytes, so an OAM tile number = this index
 
+volatile uint32_t g_ndsXformOam = 0, g_ndsXformSw = 0, g_ndsXformWhy = 0, g_ndsXformSize = 0; // scaled / rotated sprites: OAM vs software, last software reason
 uint16_t g_ndsOam[128 * 4]; // attr0, attr1, attr2, (affine parameter, unused)
 volatile uint32_t g_ndsOamCount = 0, g_ndsOamFallback = 0, g_ndsOamUploads = 0, g_ndsOamTilesUsed = 0, g_ndsOamFlushes = 0;
 
@@ -237,12 +238,16 @@ bool NdsOamXform(int direction, int XPos, int YPos, int pivotX, int pivotY, int 
                  const byte *sheet, int stride)
 {
     if (W <= 0 || H <= 0 || sx < 4 || sy < 4)
-        return W <= 0 || H <= 0;
-    if (W > 255 || H > 255 || sprX > 4095 || sprY > 4095 || s_mat >= 32)
-        return false;
+        return true; // nothing visible (empty, or smaller than 1/128)
+    const uint32_t size = (uint32_t)(W << 16 | H);
+#define XFORM_SW(why) do { g_ndsXformSw = g_ndsXformSw + 1; g_ndsXformWhy = (why); g_ndsXformSize = size; return false; } while (0)
+    if (W > 255 || H > 255 || sprX > 4095 || sprY > 4095)
+        XFORM_SW(1); // frame too big for the cache key
     Frame *f = Lookup(sheetID, sprX, sprY, W, H, sheet + sprY * stride + sprX, stride);
-    if (!f || f->n == 0)
-        return false;
+    if (!f)
+        XFORM_SW(2); // OBJ VRAM full this frame
+    if (f->n == 0)
+        XFORM_SW(3); // more than 8 OBJ pieces
     angle &= 0x1FF;
     const int c = cos512LookupTable[angle], s = sin512LookupTable[angle];
     const int sgn = direction == FLIP_X ? -1 : 1;
@@ -251,6 +256,12 @@ bool NdsOamXform(int direction, int XPos, int YPos, int pivotX, int pivotY, int 
     auto clamp = [](int v) { return (int16_t)(v < -32000 ? -32000 : v > 32000 ? 32000 : v); };
     int px[MAX_PIECES], py[MAX_PIECES];
     int need = 0;
+    const int ac = c < 0 ? -c : c, as = s < 0 ? -s : s;
+    for (int i = 0; i < f->n; ++i) { // the double-size box (2w x 2h) must hold the transformed piece, else it would be cut
+        const Piece &p = f->p[i];
+        if ((sx * (ac * p.w + as * p.h) >> 19) > p.w || (sy * (as * p.w + ac * p.h) >> 19) > p.h)
+            XFORM_SW(6); // zoomed past the box: software
+    }
     for (int i = 0; i < f->n; ++i) {
         const Piece &p = f->p[i];
         const int ox = sgn * (p.ox + p.w / 2 - pivotX), oy = p.oy + p.h / 2 - pivotY;
@@ -262,15 +273,31 @@ bool NdsOamXform(int direction, int XPos, int YPos, int pivotX, int pivotY, int 
         else
             px[i] = -32768;
     }
-    if (need == 0)
+    if (need == 0) {
+        g_ndsXformOam = g_ndsXformOam + 1;
         return true;
+    }
     if (s_count + need > 128)
-        return false;
-    const int m = s_mat++;
-    g_ndsOam[(4 * m) * 4 + 3]     = (uint16_t)clamp(pa);
-    g_ndsOam[(4 * m + 1) * 4 + 3] = (uint16_t)clamp(pb);
-    g_ndsOam[(4 * m + 2) * 4 + 3] = (uint16_t)clamp(pc);
-    g_ndsOam[(4 * m + 3) * 4 + 3] = (uint16_t)clamp(pd);
+        XFORM_SW(4); // OAM full
+    const uint16_t qa = (uint16_t)clamp(pa), qb = (uint16_t)clamp(pb), qc = (uint16_t)clamp(pc), qd = (uint16_t)clamp(pd);
+    int m = -1;
+    for (int k = 0; k < s_mat; ++k) { // an identical matrix already queued (same scale and angle): share it
+        if (g_ndsOam[(4 * k) * 4 + 3] == qa && g_ndsOam[(4 * k + 1) * 4 + 3] == qb && g_ndsOam[(4 * k + 2) * 4 + 3] == qc
+            && g_ndsOam[(4 * k + 3) * 4 + 3] == qd) {
+            m = k;
+            break;
+        }
+    }
+    if (m < 0) {
+        if (s_mat >= 32)
+            XFORM_SW(5); // the 32 matrices are used
+        m                             = s_mat++;
+        g_ndsOam[(4 * m) * 4 + 3]     = qa;
+        g_ndsOam[(4 * m + 1) * 4 + 3] = qb;
+        g_ndsOam[(4 * m + 2) * 4 + 3] = qc;
+        g_ndsOam[(4 * m + 3) * 4 + 3] = qd;
+    }
+    g_ndsXformOam = g_ndsXformOam + 1;
     for (int i = 0; i < f->n; ++i) {
         if (px[i] == -32768)
             continue;

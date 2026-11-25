@@ -25,6 +25,7 @@ extern int g_ps1FaceCap, faceCount, vertexCount;
 extern char g_ndsS3dFolder[];
 extern volatile int g_ndsS3dStatus;
 extern int g_ndsS3dGpu;
+extern volatile uint32_t g_ndsXformOam, g_ndsXformSw, g_ndsXformWhy, g_ndsXformSize;
 extern volatile uint32_t g_ndsS3dTkT, g_ndsS3dTkS, g_ndsS3dTkD, g_ndsS3dQFrame;
 extern volatile uint32_t g_ndsS3dFreeKB, g_ndsS3dFail, g_ndsS3dHeapUsed, g_ndsS3dHeapArena, g_ndsS3dHeapLimit;
 extern volatile uint32_t g_ndsS3dCalls;
@@ -263,6 +264,8 @@ static void showStatus(int page, unsigned frame, unsigned sumV, unsigned maxV, u
         row(" %s", g_ndsMusPath);
         row("hud:%s", (const char *)g_ndsHudNames);
         row("3D st:%d calls:%lu %s", g_ndsS3dStatus, (unsigned long)g_ndsS3dCalls, g_ndsS3dFolder);
+        row("xform oam:%lu sw:%lu why:%lu %lux%lu", (unsigned long)g_ndsXformOam, (unsigned long)g_ndsXformSw, (unsigned long)g_ndsXformWhy,
+            (unsigned long)(g_ndsXformSize >> 16), (unsigned long)(g_ndsXformSize & 0xFFFF));
         row("3D path:%s (L+R+Y)", g_ndsS3dGpu ? "GPU" : "CPU");
         row("3D tk T:%lu S:%lu D:%lu", (unsigned long)g_ndsS3dTkT, (unsigned long)g_ndsS3dTkS, (unsigned long)g_ndsS3dTkD);
         row("3D vtx:%d quads/frame:%lu", vertexCount, (unsigned long)g_ndsS3dQFrame);
