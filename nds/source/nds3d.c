@@ -37,7 +37,7 @@ int Nds3dQuad(const int *xy, unsigned rgb15, int z)
     if (s_quads >= 1900)
         return 0;
     ++s_quads;
-    glColor((rgb_t)rgb15);
+    glColor(rgb15);
     for (int i = 0; i < 4; ++i) glVertex3v16((v16)xy[i * 2], (v16)xy[i * 2 + 1], (v16)z);
     return 1;
 }
