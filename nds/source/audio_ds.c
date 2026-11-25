@@ -1,3 +1,4 @@
+#include <malloc.h>
 // DS audio, libnds side (C, so the engine's headers never meet libnds'). The ARM7 plays everything: sound effects are
 // started with soundPlaySample on the hardware channels; the music is a looping 16-bit mono ring buffer that the ARM9
 // refills from the SD card in small pieces (a .dsm file made by tools/ds/convert_audio.py).
@@ -179,4 +180,13 @@ int NdsMusicUpdate(void)
         MusFill(n);
     }
     return 1;
+}
+
+// Heap numbers for the console (KB): bytes malloc has allocated, taken from the system, and the heap's total room
+void NdsHeapInfo(unsigned *totalKB, unsigned *usedKB, unsigned *limitKB)
+{
+    struct mallinfo mi = mallinfo();
+    *usedKB            = (unsigned)mi.uordblks / 1024;
+    *totalKB           = (unsigned)mi.arena / 1024;
+    *limitKB           = (unsigned)((char *)getHeapLimit() - (char *)getHeapStart()) / 1024;
 }

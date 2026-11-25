@@ -7,6 +7,7 @@
 
 extern "C" {
 unsigned NdsHeapFree(void);
+void NdsHeapInfo(unsigned *totalKB, unsigned *usedKB, unsigned *limitKB);
 int Nds3dQuad(const int *xy, unsigned rgb15, int z);
 }
 
@@ -30,6 +31,7 @@ static VertexT *s_vt           = nullptr;
 static DrawListEntry3D *s_tmp  = nullptr;
 char g_ndsS3dFolder[20] = "-";
 volatile int g_ndsS3dStatus = 0; // 0 never called, 1 folder not a special stage, 2 allocation failed, 3 ready
+volatile uint32_t g_ndsS3dHeapUsed = 0, g_ndsS3dHeapArena = 0, g_ndsS3dHeapLimit = 0;
 volatile uint32_t g_ndsS3dFreeKB = 0, g_ndsS3dFail = 0; // heap free (KB) at the call, which allocation failed (1..5)
 volatile uint32_t g_ndsS3dCalls = 0;
 volatile uint32_t g_ndsS3dQuads = 0, g_ndsS3dFaces = 0, g_ndsS3dSkipped = 0;
@@ -66,6 +68,11 @@ void PS1Scene3DPrepare(const char *folder)
     if (!special)
         return; // (a list of stages: Data/Game/PS1Scene3D.bin, later; Sonic 1's special stages too)
     g_ndsS3dFreeKB = NdsHeapFree() / 1024;
+    {
+        unsigned t, u, l;
+        NdsHeapInfo(&t, &u, &l);
+        g_ndsS3dHeapArena = t, g_ndsS3dHeapUsed = u, g_ndsS3dHeapLimit = l;
+    }
     Vertex *v = (Vertex *)calloc(VERTEXBUFFER_SIZE, sizeof(Vertex));
     Face *f   = (Face *)calloc(FACEBUFFER_SIZE, sizeof(Face));
     VertexT *t = (VertexT *)calloc(VERTEXBUFFER_SIZE, sizeof(VertexT));
