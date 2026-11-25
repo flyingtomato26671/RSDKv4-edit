@@ -29,11 +29,11 @@ uint32_t NdsTkLogic(void);
 void NdsTopUpd(char *buf, int n);
 void NdsTopDraw(char *buf, int n);
 struct NdsHwFrame {
-    int hw, nLayers, used[3], bg2Front, buf;
-    uint16_t vofs[3];
-    int uniform[3];
-    uint32_t *table[3];
-    uint16_t hofs[3];
+    int hw, nLayers, used[4], front, buf;
+    uint16_t vofs[4];
+    int uniform[4];
+    uint32_t *table[4];
+    uint16_t hofs[4];
     int clearIdx, bank0, nSwitch, swLine[4], swBank[4];
     int bright;
 };
@@ -97,7 +97,8 @@ static void vcountHandler(void)
 }
 
 // Applies the hardware-background state the engine prepared for the frame just drawn (called right after vblank)
-static void applyHw(int bitmapBg)
+static int s_bg3Mode = -1; // 0: the sprite bitmap, 1: an extended tile map (the fourth tile pass)
+static void applyHw(int bitmapBg, int front)
 {
     NdsHwFrame &h = g_ndsHw;
     volatile uint16_t *cnt[2]  = { &REG_BG0CNT, &REG_BG1CNT };
@@ -123,7 +124,7 @@ static void applyHw(int bitmapBg)
         else
             videoBgDisable(i);
     }
-    if (h.hw && h.used[2]) { // the third pass: extended BG (16-bit map entries), whole-layer scroll through the affine origin
+    if (h.hw && h.used[2]) { // extended BG (16-bit map entries), whole-layer scroll through the affine origin
         bgSetMapBase(2, 16 + h.buf * 4);
         REG_BG2X = (int)h.hofs[2] << 8;
         REG_BG2Y = (int)h.vofs[2] << 8;
@@ -131,6 +132,26 @@ static void applyHw(int bitmapBg)
     }
     else
         videoBgDisable(2);
+    if (h.hw && h.used[3]) { // BG3 as the fourth tile pass (map 0xC000 / 0xE000)
+        if (s_bg3Mode != 1) {
+            bgInit(3, BgType_ExRotation, BgSize_ER_512x512, 24 + h.buf * 4, 4);
+            bgWrapOn(3);
+            s_bg3Mode = 1;
+        }
+        else
+            bgSetMapBase(3, 24 + h.buf * 4);
+        REG_BG3X = (int)h.hofs[3] << 8;
+        REG_BG3Y = (int)h.vofs[3] << 8;
+    }
+    else { // BG3 as the sprite bitmap: the page just drawn
+        if (s_bg3Mode != 0) {
+            bgInit(3, BgType_Bmp16, BgSize_B16_256x256, front ? 14 : 8, 0);
+            s_bg3Mode = 0;
+        }
+        else
+            bgSetMapBase(3, front ? 14 : 8); // bitmap base in 16 KB units: page 0 = 0x20000, page 1 = 0x38000
+    }
+    videoBgEnable(3);
     if (h.hw) { // palette: bank of the first line now, the others in the HBlanks before their lines
         s_clearIdx = h.clearIdx;
         palCopy(h.bank0);
@@ -148,14 +169,16 @@ static void applyHw(int bitmapBg)
             irqDisable(IRQ_VCOUNT);
     }
     setBrightness(1, h.bright);
-    bgSetPriority(2, h.bg2Front ? 0 : 1);
+    bgSetPriority(2, (h.front & 4) ? 0 : 1);
     {
         extern uint16_t g_ndsOam[];
         volatile uint32_t *o = (volatile uint32_t *)OAM;
         const uint32_t *q    = (const uint32_t *)g_ndsOam;
         for (int i = 0; i < 256; i++) o[i] = q[i];
     }
-    bgSetPriority(bitmapBg, h.bg2Front ? 1 : 0); // a front pass on BG2 ties with the bitmap (priority 1) and wins by BG index
+    // BG3: a tile pass in front of the player (priority 0, above the game's sprites at 1) or the bitmap, which sits with the
+    // sprites (a front pass on BG2 ties with it at 1 and wins by BG index)
+    bgSetPriority(3, h.used[3] ? 0 : ((h.front & 4) ? 1 : 0));
 }
 
 // ---- the sub screen: fixed 24 x 32 text, rewritten in place (no clear, no scrolling)
@@ -359,8 +382,7 @@ int main(void)
         swiWaitForVBlank();
         if (NdsFrameDrawn()) { // show the page just drawn, draw the next frame into the other one
             front ^= 1;
-            bgSetMapBase(bg, front ? 14 : 8); // bitmap base in 16 KB units: page 0 = 0x20000, page 1 = 0x38000
-            applyHw(bg);
+            applyHw(bg, front);
             NdsSetBackBuffer(page[front ^ 1]);
         }
         if ((frame & 15) == 0 || turn) { // text is written right after vblank, in place: no flicker

@@ -142,6 +142,7 @@ static void SpriteBlit(int XPos, int YPos, int width, int height, int sprX, int 
     const bool fy = flip == FLIP_Y || flip == FLIP_XY;
     const byte *sheet = &graphicData[surface->dataPosition];
     if (ink == INK_PLAIN) {
+        g_ndsSwDraw = true;
         NdsMarkDirty(x - WIN_X0, y - WIN_Y0, x - WIN_X0 + w, y - WIN_Y0 + h);
         const uint32_t tb = BlitTicks();
         BlitPlain(sheet, surface->width, sprX, sprY, W, H, fx, fy, x, y, w, h, ox, oy);
@@ -241,6 +242,7 @@ void DrawRectangle(int XPos, int YPos, int width, int height, int R, int G, int 
             return;
         A = 0xFF;
     }
+    g_ndsSwDraw = true;
     NdsMarkDirty(XPos - WIN_X0, YPos - WIN_Y0, XPos - WIN_X0 + width, YPos - WIN_Y0 + height);
     const uint32_t clr = PACK_RGB888(R, G, B);
     for (int r = 0; r < height; ++r) {
@@ -258,6 +260,7 @@ void DrawTintRectangle(int XPos, int YPos, int width, int height)
     int sx = 0, sy = 0;
     if (!ClipToWindow(XPos, YPos, width, height, sx, sy))
         return;
+    g_ndsSwDraw = true;
     NdsMarkDirty(XPos - WIN_X0, YPos - WIN_Y0, XPos - WIN_X0 + width, YPos - WIN_Y0 + height);
     for (int r = 0; r < height; ++r) {
         uint16_t *dst = g_ndsDst + (YPos + r - WIN_Y0) * 256 + (XPos - WIN_X0);

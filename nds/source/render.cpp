@@ -335,13 +335,13 @@ static bool PrepareLayer(int layerID, LayerCtx &c)
 struct NdsHwFrame {
     int hw;               // 1: BG0/BG1 carry tile layers this frame (else the bitmap holds everything)
     int nLayers;          // (unused)
-    int used[3];          // BG0, BG1 (text) and BG2 (extended) carry a tile pass this frame
-    int bg2Front;         // BG2 is a pass in front of the sprites (else behind them)
+    int used[4];          // BG0, BG1 (text) and BG2, BG3 (extended) carry a tile pass this frame (BG3: else the sprite bitmap)
+    int front;            // bit i: BGi is a pass in front of the game's sprites (else behind them)
     int buf;              // map buffer to show
-    uint16_t vofs[3];
-    int uniform[3];       // every line has the same x scroll (layer 2, the extended BG, needs it)
-    uint32_t *table[3];   // 193 entries: x scroll | y scroll << 16, per logic window line
-    uint16_t hofs[3];     // x scroll of line 0
+    uint16_t vofs[4];
+    int uniform[4];       // every line has the same x scroll (BG2 / BG3, the extended BGs, need it)
+    uint32_t *table[4];   // 193 entries: x scroll | y scroll << 16, per logic window line
+    uint16_t hofs[4];     // x scroll of line 0
     int clearIdx;         // backdrop colour index (palette entry 0 of every bank)
     int bank0;            // palette bank of window line 0
     int nSwitch;          // palette bank changes down the screen (water): at most 4
@@ -352,7 +352,7 @@ struct NdsHwFrame {
 extern "C" NdsHwFrame g_ndsHw;
 NdsHwFrame g_ndsHw;
 
-static uint32_t s_tbl[2][3][193];
+static uint32_t s_tbl[2][4][193];
 static uint16_t s_q[TILE_COUNT][4]; // hardware map entries of each 16x16 tile's quadrants (0xFFFF = not built yet)
 static uint16_t s_hash[2048];       // 8x8 block hash -> hardware tile + 1
 static int s_next = 1, s_dynNext = HW_STATIC_MAX;
@@ -360,7 +360,7 @@ static bool s_hwReady = false, s_hwFail = false, s_dyn[TILE_COUNT];
 static int s_mapBuf = 0;
 static uint32_t s_mapVer = 1; // bumped whenever map contents could change without the scroll (tileset, tile edits)
 struct MapRec { int r16; int lo, hi; uintptr_t sig; uint32_t ver; };
-static MapRec s_rec[2][3][32]; // per map buffer, layer and 16-px row: the columns already written
+static MapRec s_rec[2][4][32]; // per map buffer, layer and 16-px row: the columns already written
 static uint s_palVer = 0xFFFFFFFF;
 static int s_palClear = -1;
 volatile uint32_t g_ndsHwTiles = 0, g_ndsHwFrames = 0, g_ndsSwFrames = 0, g_ndsHwFail = 0;
@@ -487,8 +487,8 @@ void PS1Copy16x16Tile(int dest, int src)
 
 static inline volatile uint16_t *HwMapEntry(int buf, int layer, int col, int row)
 {
-    if (layer == 2) // the extended BG's map is linear: 64 x 64 entries at 0x8000 / 0xA000
-        return (volatile uint16_t *)(HW_MAP_BASE + 0x8000 + buf * 0x2000) + row * 64 + col;
+    if (layer >= 2) // the extended BGs' maps are linear: 64 x 64 entries, BG2 at 0x8000 / 0xA000, BG3 at 0xC000 / 0xE000
+        return (volatile uint16_t *)(HW_MAP_BASE + 0x8000 + (layer - 2) * 0x4000 + buf * 0x2000) + row * 64 + col;
     return (volatile uint16_t *)(HW_MAP_BASE + buf * 0x4000 + layer * 0x2000)
            + ((row >> 5) * 2 + (col >> 5)) * 1024 + (row & 31) * 32 + (col & 31);
 }
@@ -548,8 +548,8 @@ static bool HwLayer(int layer, const LayerCtx &c, int buf)
         tbl[wy] = (uint32_t)(lx[wy] & 511) | (vofs << 16);
     }
     tbl[WIN_H] = tbl[0];
-    if (layer == 2 && !uniform)
-        return false; // the extended BG scrolls as a whole: this pass stays in software
+    if (layer >= 2 && !uniform)
+        return false; // the extended BGs scroll as a whole: this pass stays in software
     g_ndsHw.uniform[layer] = uniform;
     g_ndsHw.hofs[layer]    = (uint16_t)(lx[0] & 511);
     g_ndsHw.vofs[layer]    = (uint16_t)vofs;
@@ -625,10 +625,25 @@ static void ObjList(int i)
 {
     if (i == 3 || i == 4)
         s_obj34 = true; // from here on a tile pass is in front of the player: it stays in software
+    NdsOamHud(i >= 5);
     uint32_t t = Ticks();
     DrawObjectList(i);
     s_tkObj += Ticks() - t;
 }
+
+// Whether every window line of the pass has the same x scroll (what BG2 / BG3 need)
+static bool LayerUniform(const LayerCtx &c)
+{
+    const int x0 = LineX(c, WIN_Y0);
+    for (int wy = 1; wy < WIN_H; ++wy)
+        if (LineX(c, WIN_Y0 + wy) != x0)
+            return false;
+    return true;
+}
+
+static bool s_bg3Tile = false;    // this frame BG3 may carry a tile pass (else it shows the sprite bitmap)
+static bool s_needBitmapPrev = false, s_needBitmapNext = false;
+bool g_ndsSwDraw = false;         // a draw went to the bitmap this frame (sprite fallback, rectangle, rotated sprite)
 
 static void DrawTileLayer(int k)
 {
@@ -641,19 +656,30 @@ static void DrawTileLayer(int k)
     if (!PrepareLayer(k, c))
         return;
     uint32_t t = Ticks();
+    int bg = -1;
     if (s_hwMode && s_hwOpen && !s_obj34 && s_hwLayers < 3 && HwLayer(s_hwLayers, c, s_hwBuf)) {
         g_ndsHw.used[s_hwLayers] = 1; // a pass behind the sprites: BG0, BG1, BG2 in order
         s_hwLayers++;
         g_ndsPassInfo[k] = 'H';
     }
-    else if (s_hwMode && s_obj34 && !g_ndsHw.used[2] && HwLayer(2, c, s_hwBuf)) {
-        g_ndsHw.used[2]   = 1; // a pass in front of the player: BG2 above the sprite bitmap
-        g_ndsHw.bg2Front  = 1;
-        g_ndsPassInfo[k]  = 'F';
+    else if (s_hwMode && s_obj34) {
+        // passes in front of the player: the first goes on BG3 (when it is not the sprite bitmap this frame), the second on BG2
+        // (the lower BG index wins at equal priority: the later pass is on top)
+        if (s_bg3Tile && !g_ndsHw.used[3] && HwLayer(3, c, s_hwBuf))
+            bg = 3;
+        else if (!g_ndsHw.used[2] && HwLayer(2, c, s_hwBuf))
+            bg = 2;
+        if (bg >= 0) {
+            g_ndsHw.used[bg] = 1;
+            g_ndsHw.front |= 1 << bg;
+            g_ndsPassInfo[k] = 'F';
+        }
     }
-    else {
+    if (g_ndsPassInfo[k] == '-') {
         s_hwOpen = false;
         g_ndsPassInfo[k] = 'S';
+        if (s_hwMode && (s_bg3Tile || !LayerUniform(c)))
+            s_needBitmapNext = true; // drawn into a bitmap that is not shown (lost this frame) or a pass BG2 / BG3 cannot scroll
         DrawHLayerLines(c);
     }
     s_tkTiles += Ticks() - t;
@@ -675,8 +701,11 @@ void DrawStageGFX()
     s_hwOpen   = s_hwMode;
     s_hwLayers = 0;
     s_obj34    = false;
-    g_ndsHw.used[0] = g_ndsHw.used[1] = g_ndsHw.used[2] = 0;
-    g_ndsHw.bg2Front = 0;
+    g_ndsHw.used[0] = g_ndsHw.used[1] = g_ndsHw.used[2] = g_ndsHw.used[3] = 0;
+    g_ndsHw.front = 0;
+    s_bg3Tile        = s_hwMode && !s_needBitmapPrev; // BG3 shows the sprite bitmap only while something draws into it
+    s_needBitmapNext = false;
+    g_ndsSwDraw      = false;
     s_hwBuf    = s_mapBuf;
     const uint32_t bgc = fullPalette[0][s_clearIndex];
     uint32_t fill      = s_hwMode ? 0 : (bgc | (bgc << 16)); // hardware frame: the bitmap is a transparent sprite layer
@@ -744,7 +773,10 @@ void DrawStageGFX()
             DrawRectangle(0, 0, SCREEN_XSIZE, SCREEN_YSIZE, fadeR, fadeG, fadeB, fadeA);
     }
 
-    NdsOamEnd(g_ndsHw.bg2Front ? 1 : 0);
+    if (g_ndsSwDraw)
+        s_needBitmapNext = true;
+    s_needBitmapPrev = s_needBitmapNext;
+    NdsOamEnd(g_ndsHw.front ? 1 : 0);
     g_ndsHw.hw      = s_hwMode;
     g_ndsHw.nLayers = s_hwLayers;
     g_ndsHw.buf     = s_hwBuf;

@@ -42,6 +42,9 @@ static int s_cacheUsed = 0;
 static int s_tileNext = 0; // next free 64-byte tile in OBJ VRAM
 static int s_count = 0;    // OAM entries queued this frame
 static uint16_t s_tile[128];
+static uint8_t s_hudFlag[128];
+static bool s_hud = false;
+void NdsOamHud(bool hud) { s_hud = hud; }
 
 static inline volatile uint32_t *ObjTile(int t) { return (volatile uint32_t *)(OBJ_VRAM + t * 64); }
 
@@ -59,6 +62,7 @@ void NdsOamBegin()
         NdsOamFlush();
     for (int i = 0; i < 128; ++i) g_ndsOam[i * 4] = 0x0200; // hidden
     s_count = 0;
+    s_hud   = false;
 }
 
 // Covers a wt x ht tile rectangle (in 8 px units) with shapes; returns the piece count or 0 when more than MAX_PIECES are needed
@@ -208,14 +212,16 @@ bool NdsOamSprite(int X, int Y, int W, int H, int sprX, int sprY, int flip, int 
         g_ndsOam[idx * 4]     = (uint16_t)(yy | 0x2000 | (p.shape << 14)); // 256 colours
         g_ndsOam[idx * 4 + 1] = (uint16_t)(xx | (fx ? 0x1000 : 0) | (fy ? 0x2000 : 0) | (p.size << 14));
         s_tile[idx]           = p.tile;
+        s_hudFlag[idx]        = s_hud;
         ++s_count;
     }
     return true;
 }
 
-// End of the frame: tile numbers and priority (0 above the BGs it shares with; the front pass on BG2 needs 1)
+// End of the frame: tile numbers and priority: the game's sprites get `priority` (1 when a tile pass is in front of them, so it
+// covers them), the HUD's 0 (above that pass)
 void NdsOamEnd(int priority)
 {
-    for (int i = 128 - s_count; i < 128; ++i) g_ndsOam[i * 4 + 2] = (uint16_t)(s_tile[i] | (priority << 10));
+    for (int i = 128 - s_count; i < 128; ++i) g_ndsOam[i * 4 + 2] = (uint16_t)(s_tile[i] | ((s_hudFlag[i] ? 0 : priority) << 10));
     g_ndsOamCount = s_count;
 }

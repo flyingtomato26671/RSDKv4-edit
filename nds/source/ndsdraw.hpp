@@ -56,3 +56,5 @@ extern uint32_t g_ndsTypeUpd[256], g_ndsTypeDraw[256];
 extern volatile uint32_t g_ndsTkLogic;
 void NdsTypeCacheReset();
 extern int g_ndsScriptBright;
+extern bool g_ndsSwDraw; // set by sprite / rectangle draws that go to the bitmap
+void NdsOamHud(bool hud); // the sprites queued from here on are the HUD's (in front of the tile passes that are in front of the player)

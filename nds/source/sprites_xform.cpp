@@ -532,23 +532,23 @@ void DrawScaledTintMask(int direction, int XPos, int YPos, int pivotX, int pivot
                         int sheetID)
 {
     if (g_ndsDst && scaleX > 0 && scaleY > 0)
-        NdsDirtyAll(), Impl_DrawScaledTintMask(direction, XPos - WIN_X0, YPos - WIN_Y0, pivotX, pivotY, scaleX, scaleY, width, height, sprX, sprY, sheetID);
+        g_ndsSwDraw = true, NdsDirtyAll(), Impl_DrawScaledTintMask(direction, XPos - WIN_X0, YPos - WIN_Y0, pivotX, pivotY, scaleX, scaleY, width, height, sprX, sprY, sheetID);
 }
 void DrawSpriteScaled(int direction, int XPos, int YPos, int pivotX, int pivotY, int scaleX, int scaleY, int width, int height, int sprX, int sprY,
                       int sheetID)
 {
     if (g_ndsDst && scaleX > 0 && scaleY > 0)
-        NdsDirtyAll(), Impl_DrawSpriteScaled(direction, XPos - WIN_X0, YPos - WIN_Y0, pivotX, pivotY, scaleX, scaleY, width, height, sprX, sprY, sheetID);
+        g_ndsSwDraw = true, NdsDirtyAll(), Impl_DrawSpriteScaled(direction, XPos - WIN_X0, YPos - WIN_Y0, pivotX, pivotY, scaleX, scaleY, width, height, sprX, sprY, sheetID);
 }
 void DrawSpriteRotated(int direction, int XPos, int YPos, int pivotX, int pivotY, int sprX, int sprY, int width, int height, int rotation,
                        int sheetID)
 {
     if (g_ndsDst)
-        NdsDirtyAll(), Impl_DrawSpriteRotated(direction, XPos - WIN_X0, YPos - WIN_Y0, pivotX, pivotY, sprX, sprY, width, height, rotation, sheetID);
+        g_ndsSwDraw = true, NdsDirtyAll(), Impl_DrawSpriteRotated(direction, XPos - WIN_X0, YPos - WIN_Y0, pivotX, pivotY, sprX, sprY, width, height, rotation, sheetID);
 }
 void DrawSpriteRotozoom(int direction, int XPos, int YPos, int pivotX, int pivotY, int sprX, int sprY, int width, int height, int rotation, int scale,
                         int sheetID)
 {
     if (g_ndsDst)
-        NdsDirtyAll(), Impl_DrawSpriteRotozoom(direction, XPos - WIN_X0, YPos - WIN_Y0, pivotX, pivotY, sprX, sprY, width, height, rotation, scale, sheetID);
+        g_ndsSwDraw = true, NdsDirtyAll(), Impl_DrawSpriteRotozoom(direction, XPos - WIN_X0, YPos - WIN_Y0, pivotX, pivotY, sprX, sprY, width, height, rotation, scale, sheetID);
 }
