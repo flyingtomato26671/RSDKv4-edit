@@ -14,3 +14,6 @@ menus, save, loading, Scene3D, main), in `nds/`.
 `nds/PORT_NOTES.md` explains every change made to run the engine on the DS (memory map, hardware layers, OAM and affine
 sprites, script natives, audio, the special stage on the 3D engine), why it was needed, what it did for performance, the
 measured numbers, the diagnostics console and the open items.
+
+`nds/PORTING_GUIDE.md` is a general guide for anyone doing a similar port (RSDKv4 or another small 2D engine) to a console with a few MB of RAM:
+what must be changed, adapted or rewritten, in what order, and the pitfalls.
