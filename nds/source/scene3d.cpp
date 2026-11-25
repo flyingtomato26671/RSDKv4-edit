@@ -38,6 +38,7 @@ volatile uint32_t g_ndsS3dHeapUsed = 0, g_ndsS3dHeapArena = 0, g_ndsS3dHeapLimit
 volatile uint32_t g_ndsS3dFreeKB = 0, g_ndsS3dFail = 0; // heap free (KB) at the call, which allocation failed (1..5)
 volatile uint32_t g_ndsS3dTkT = 0, g_ndsS3dTkS = 0, g_ndsS3dTkD = 0, g_ndsS3dQFrame = 0; // last call's ticks: transform, sort, draw
 int g_ndsS3dGpu = 1; // 1: the geometry engine transforms / projects / depth-sorts the path (L+R+Y toggles, for A/B); 0: the ARM9 does
+volatile uint32_t g_ndsS3dRange = 0; // vertices sent to the geometry engine outside the 16-bit range (wrapped)
 volatile uint32_t g_ndsS3dCalls = 0;
 volatile uint32_t g_ndsS3dQuads = 0, g_ndsS3dFaces = 0, g_ndsS3dSkipped = 0;
 
@@ -353,6 +354,8 @@ static volatile uint32_t *const GX_COLOR    = (volatile uint32_t *)0x04000480;
 static volatile uint32_t *const GX_VERTEX16 = (volatile uint32_t *)0x0400048C;
 static inline void GxVertex(const Vertex &v)
 {
+    if ((unsigned)(v.x + 32768) > 65535u || (unsigned)(v.y + 32768) > 65535u || (unsigned)(v.z + 32768) > 65535u)
+        g_ndsS3dRange = g_ndsS3dRange + 1;
     *GX_VERTEX16 = ((uint32_t)(uint16_t)v.x) | ((uint32_t)v.y << 16);
     *GX_VERTEX16 = (uint32_t)(uint16_t)v.z;
 }

@@ -50,8 +50,8 @@ void Nds3dGpuBegin(const int *vals, int projX, int projY)
     for (int i = 0; i < 16; ++i) p.m[i] = 0;
     p.m[0]  = projX * 32;          // projX / 128 in 20.12
     p.m[5]  = projY * 4096 / 96;   // projY / 96
-    p.m[10] = 4097;                // z: near 32, far 196608 (ndc z = A + B / z)
-    p.m[14] = -262197;
+    p.m[10] = 4097;                // z: near 32, far 458752 (ndc z = A + B / z; B = 2 n f / (n - f), A = 1 - B / f)
+    p.m[14] = -262168;
     p.m[11] = 4096;                // w = z
     glMatrixMode(GL_PROJECTION);
     glLoadMatrix4x4(&p);
@@ -60,7 +60,8 @@ void Nds3dGpuBegin(const int *vals, int projX, int projY)
     for (int j = 0; j < 3; ++j) mv.m[9 + j] = vals[9 + j] << 12;
     glMatrixMode(GL_MODELVIEW);
     glLoadMatrix4x3(&mv);
-    glPolyFmt(POLY_ALPHA(31) | POLY_CULL_NONE | POLY_ID(1));
+    // bit 12: render polygons that cross the far plane (the DS hides them by default: a straight pipe's far end vanished)
+    glPolyFmt(POLY_ALPHA(31) | POLY_CULL_NONE | POLY_ID(1) | (1 << 12));
     glBegin(GL_QUADS);
     s_active = 1;
     s_quads  = 0;
