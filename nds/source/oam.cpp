@@ -41,6 +41,7 @@ static Frame s_cache[CACHE_SIZE];
 static int s_cacheUsed = 0;
 static int s_tileNext = 0; // next free 64-byte tile in OBJ VRAM
 static int s_count = 0;    // OAM entries queued this frame
+static int s_mat = 0;      // affine matrices used this frame (32 exist: attr3 of OAM entries 4k..4k+3)
 static uint16_t s_tile[128];
 static uint8_t s_hudFlag[128];
 static bool s_hud = false;
@@ -62,6 +63,7 @@ void NdsOamBegin()
         NdsOamFlush();
     for (int i = 0; i < 128; ++i) g_ndsOam[i * 4] = 0x0200; // hidden
     s_count = 0;
+    s_mat   = 0;
     s_hud   = false;
 }
 
@@ -224,4 +226,61 @@ void NdsOamEnd(int priority)
 {
     for (int i = 128 - s_count; i < 128; ++i) g_ndsOam[i * 4 + 2] = (uint16_t)(s_tile[i] | ((s_hudFlag[i] ? 0 : priority) << 10));
     g_ndsOamCount = s_count;
+}
+
+// A scaled / rotated sprite on the hardware's affine OAM entries (double-size box, one matrix per sprite shared by its pieces).
+// Same geometry as the software functions (sprites_xform.cpp): a texture point t is drawn at P + F * o with
+// o = (sgn * (t.x - pivotX), t.y - pivotY), F = rotation(angle) * diag(sx, sy) / 512 (sx, sy: 512 = 1.0; angle: the 512-step
+// index after the engine's inversion). OAM wants the inverse: texture offset = M * screen offset (8.8 fixed point).
+// XPos / YPos are window coordinates. False: the software path must draw it (no matrix / entry / piece fits).
+bool NdsOamXform(int direction, int XPos, int YPos, int pivotX, int pivotY, int sx, int sy, int angle, int W, int H, int sprX, int sprY, int sheetID,
+                 const byte *sheet, int stride)
+{
+    if (W <= 0 || H <= 0 || sx < 4 || sy < 4)
+        return W <= 0 || H <= 0;
+    if (W > 255 || H > 255 || sprX > 4095 || sprY > 4095 || s_mat >= 32)
+        return false;
+    Frame *f = Lookup(sheetID, sprX, sprY, W, H, sheet + sprY * stride + sprX, stride);
+    if (!f || f->n == 0)
+        return false;
+    angle &= 0x1FF;
+    const int c = cos512LookupTable[angle], s = sin512LookupTable[angle];
+    const int sgn = direction == FLIP_X ? -1 : 1;
+    int pa = (c << 8) / sx, pb = -(s << 8) / sx, pc = (s << 8) / sy, pd = (c << 8) / sy;
+    pa *= sgn, pb *= sgn;
+    auto clamp = [](int v) { return (int16_t)(v < -32000 ? -32000 : v > 32000 ? 32000 : v); };
+    int px[MAX_PIECES], py[MAX_PIECES];
+    int need = 0;
+    for (int i = 0; i < f->n; ++i) {
+        const Piece &p = f->p[i];
+        const int ox = sgn * (p.ox + p.w / 2 - pivotX), oy = p.oy + p.h / 2 - pivotY;
+        const int cx = XPos + ((sx * (c * ox + s * oy)) >> 18), cy = YPos + ((sy * (c * oy - s * ox)) >> 18);
+        px[i] = cx - p.w; // the double-size box is 2w x 2h around the centre
+        py[i] = cy - p.h;
+        if (px[i] < WIN_W && py[i] < WIN_H && px[i] + 2 * p.w > 0 && py[i] + 2 * p.h > 0)
+            ++need;
+        else
+            px[i] = -32768;
+    }
+    if (need == 0)
+        return true;
+    if (s_count + need > 128)
+        return false;
+    const int m = s_mat++;
+    g_ndsOam[(4 * m) * 4 + 3]     = (uint16_t)clamp(pa);
+    g_ndsOam[(4 * m + 1) * 4 + 3] = (uint16_t)clamp(pb);
+    g_ndsOam[(4 * m + 2) * 4 + 3] = (uint16_t)clamp(pc);
+    g_ndsOam[(4 * m + 3) * 4 + 3] = (uint16_t)clamp(pd);
+    for (int i = 0; i < f->n; ++i) {
+        if (px[i] == -32768)
+            continue;
+        const Piece &p = f->p[i];
+        const int idx  = 127 - s_count;
+        g_ndsOam[idx * 4]     = (uint16_t)((py[i] & 0xFF) | 0x0300 | 0x2000 | (p.shape << 14)); // rot/scale + double size, 256 colours
+        g_ndsOam[idx * 4 + 1] = (uint16_t)((px[i] & 0x1FF) | (m << 9) | (p.size << 14));
+        s_tile[idx]           = p.tile;
+        s_hudFlag[idx]        = s_hud;
+        ++s_count;
+    }
+    return true;
 }

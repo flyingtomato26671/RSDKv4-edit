@@ -534,21 +534,42 @@ void DrawScaledTintMask(int direction, int XPos, int YPos, int pivotX, int pivot
     if (g_ndsDst && scaleX > 0 && scaleY > 0)
         g_ndsSwDraw = true, NdsDirtyAll(), Impl_DrawScaledTintMask(direction, XPos - WIN_X0, YPos - WIN_Y0, pivotX, pivotY, scaleX, scaleY, width, height, sprX, sprY, sheetID);
 }
+static inline bool OamXform(int direction, int XPos, int YPos, int pivotX, int pivotY, int sx, int sy, int angle, int width, int height, int sprX,
+                            int sprY, int sheetID)
+{
+    if (sheetID < 0 || sheetID >= SURFACE_COUNT)
+        return false;
+    const GFXSurface *surface = &gfxSurface[sheetID];
+    return NdsOamXform(direction, XPos - WIN_X0, YPos - WIN_Y0, pivotX, pivotY, sx, sy, angle, width, height, sprX, sprY, sheetID,
+                       &graphicData[surface->dataPosition], surface->width);
+}
+// The engine's angle: rotation & 0x1FF, inverted (as the software functions do)
+static inline int OamAngle(int rotation)
+{
+    int a = rotation & 0x1FF;
+    return a ? 0x200 - a : 0;
+}
 void DrawSpriteScaled(int direction, int XPos, int YPos, int pivotX, int pivotY, int scaleX, int scaleY, int width, int height, int sprX, int sprY,
                       int sheetID)
 {
+    if (g_ndsDst && scaleX > 0 && scaleY > 0 && OamXform(direction, XPos, YPos, pivotX, pivotY, scaleX, scaleY, 0, width, height, sprX, sprY, sheetID))
+        return;
     if (g_ndsDst && scaleX > 0 && scaleY > 0)
         g_ndsSwDraw = true, NdsDirtyAll(), Impl_DrawSpriteScaled(direction, XPos - WIN_X0, YPos - WIN_Y0, pivotX, pivotY, scaleX, scaleY, width, height, sprX, sprY, sheetID);
 }
 void DrawSpriteRotated(int direction, int XPos, int YPos, int pivotX, int pivotY, int sprX, int sprY, int width, int height, int rotation,
                        int sheetID)
 {
+    if (g_ndsDst && OamXform(direction, XPos, YPos, pivotX, pivotY, 512, 512, OamAngle(rotation), width, height, sprX, sprY, sheetID))
+        return;
     if (g_ndsDst)
         g_ndsSwDraw = true, NdsDirtyAll(), Impl_DrawSpriteRotated(direction, XPos - WIN_X0, YPos - WIN_Y0, pivotX, pivotY, sprX, sprY, width, height, rotation, sheetID);
 }
 void DrawSpriteRotozoom(int direction, int XPos, int YPos, int pivotX, int pivotY, int sprX, int sprY, int width, int height, int rotation, int scale,
                         int sheetID)
 {
+    if (g_ndsDst && scale > 0 && OamXform(direction, XPos, YPos, pivotX, pivotY, scale, scale, OamAngle(rotation), width, height, sprX, sprY, sheetID))
+        return;
     if (g_ndsDst)
         g_ndsSwDraw = true, NdsDirtyAll(), Impl_DrawSpriteRotozoom(direction, XPos - WIN_X0, YPos - WIN_Y0, pivotX, pivotY, sprX, sprY, width, height, rotation, scale, sheetID);
 }

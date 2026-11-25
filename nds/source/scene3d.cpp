@@ -225,6 +225,9 @@ static void ScaledRect(int x0, int y0, int x1, int y1, int u0, int v0, int u1, i
     if (x1 < x0) { int t = x0; x0 = x1; x1 = t; t = u0; u0 = u1; u1 = t; }
     if (y1 < y0) { int t = y0; y0 = y1; y1 = t; t = v0; v0 = v1; v1 = t; }
     const int dw = x1 - x0, dh = y1 - y0;
+    if (u1 > u0 && v1 > v0 && NdsOamXform(0, x0 - WIN_X0, y0 - WIN_Y0, 0, 0, dw * 512 / (u1 - u0), dh * 512 / (v1 - v0), 0, u1 - u0, v1 - v0, u0, v0,
+                                         sheetID, sheet, surface->width))
+        return; // the hardware scales it (affine OAM)
     int ya = y0 < WIN_Y0 ? WIN_Y0 : y0, yb = y1 > WIN_Y0 + WIN_H ? WIN_Y0 + WIN_H : y1;
     int xa = x0 < WIN_X0 ? WIN_X0 : x0, xb = x1 > WIN_X0 + WIN_W ? WIN_X0 + WIN_W : x1;
     if (xa >= xb || ya >= yb)
