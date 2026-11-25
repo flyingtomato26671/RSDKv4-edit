@@ -54,3 +54,16 @@ int Nds3dEndFrame(void)
     return 1;
 }
 int Nds3dQuadCount(void) { return s_quads; }
+
+// The special stage's Scene3D arrays (~94 KB) live in VRAM bank D mapped as plain memory (LCDC, 128 KB at 0x06860000): the
+// 1 MB heap is full of sound effects. VRAM takes 16/32-bit accesses only (the caller clears it with word stores).
+void *Nds3dWorkRam(unsigned *bytes)
+{
+    vramSetBankD(VRAM_D_LCD);
+    *bytes = 128 * 1024;
+    return (void *)0x06860000;
+}
+void Nds3dWorkRamRelease(void)
+{
+    vramSetBankD(VRAM_D_LCD); // stays plain memory (nothing else uses bank D)
+}

@@ -9,6 +9,7 @@ extern "C" {
 unsigned NdsHeapFree(void);
 void NdsHeapInfo(unsigned *totalKB, unsigned *usedKB, unsigned *limitKB);
 int Nds3dQuad(const int *xy, unsigned rgb15, int z);
+void *Nds3dWorkRam(unsigned *bytes);
 }
 
 int vertexCount = 0, faceCount = 0;
@@ -42,11 +43,6 @@ volatile uint32_t g_ndsS3dQuads = 0, g_ndsS3dFaces = 0, g_ndsS3dSkipped = 0;
 
 void PS1Scene3DPrepare(const char *folder)
 {
-    free(vertexBuffer == &s_dummyVertex ? nullptr : vertexBuffer);
-    free(faceBuffer == &s_dummyFace ? nullptr : faceBuffer);
-    free(s_vt);
-    free(drawList3D);
-    free(s_tmp);
     vertexBuffer = &s_dummyVertex;
     faceBuffer   = &s_dummyFace;
     s_vt = nullptr;
@@ -73,17 +69,21 @@ void PS1Scene3DPrepare(const char *folder)
         NdsHeapInfo(&t, &u, &l);
         g_ndsS3dHeapArena = t, g_ndsS3dHeapUsed = u, g_ndsS3dHeapLimit = l;
     }
-    Vertex *v = (Vertex *)calloc(VERTEXBUFFER_SIZE, sizeof(Vertex));
-    Face *f   = (Face *)calloc(FACEBUFFER_SIZE, sizeof(Face));
-    VertexT *t = (VertexT *)calloc(VERTEXBUFFER_SIZE, sizeof(VertexT));
-    DrawListEntry3D *d = (DrawListEntry3D *)calloc(FACEBUFFER_SIZE, sizeof(DrawListEntry3D));
-    DrawListEntry3D *m = (DrawListEntry3D *)calloc(FACEBUFFER_SIZE, sizeof(DrawListEntry3D));
-    g_ndsS3dFail = !v ? 1 : !f ? 2 : !t ? 3 : !d ? 4 : !m ? 5 : 0;
-    if (!v || !f || !t || !d || !m) {
-        free(v); free(f); free(t); free(d); free(m);
+    unsigned room = 0;
+    uint8_t *ram  = (uint8_t *)Nds3dWorkRam(&room);
+    const unsigned szV = VERTEXBUFFER_SIZE * sizeof(Vertex), szF = FACEBUFFER_SIZE * sizeof(Face), szT = VERTEXBUFFER_SIZE * sizeof(VertexT),
+                   szD = FACEBUFFER_SIZE * sizeof(DrawListEntry3D);
+    g_ndsS3dFail = (szV + szF + szT + 2 * szD > room) ? 1 : 0;
+    if (g_ndsS3dFail) {
         g_ndsS3dStatus = 2;
         return;
     }
+    for (volatile uint32_t *p = (volatile uint32_t *)ram, *e = (volatile uint32_t *)(ram + szV + szF + szT + 2 * szD); p < e; ++p) *p = 0; // word stores
+    Vertex *v = (Vertex *)ram;
+    Face *f   = (Face *)(ram + szV);
+    VertexT *t = (VertexT *)(ram + szV + szF);
+    DrawListEntry3D *d = (DrawListEntry3D *)(ram + szV + szF + szT);
+    DrawListEntry3D *m = (DrawListEntry3D *)(ram + szV + szF + szT + szD);
     vertexBuffer = v;
     faceBuffer   = f;
     s_vt         = t;
