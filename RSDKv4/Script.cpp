@@ -1608,15 +1608,20 @@ int scriptCodePos     = 0;
 int scriptCodeOffset  = 0;
 int jumpTablePos      = 0;
 int jumpTableOffset   = 0;
-int jumpTableStackPos = 0;
-int functionStackPos  = 0;
-int foreachStackPos   = 0;
+#if defined(RETRO_NDS) // DS: the VM's hottest state lives in the DTCM (1-cycle data memory), the PS1's scratchpad
+#define NDS_DTCM __attribute__((section(".dtcm")))
+#else
+#define NDS_DTCM
+#endif
+NDS_DTCM int jumpTableStackPos = 0;
+NDS_DTCM int functionStackPos  = 0;
+NDS_DTCM int foreachStackPos   = 0;
 
 #if !(RETRO_PLATFORM == RETRO_PS1 && !defined(RETRO_PS1_HOST_TOOL) && !defined(RETRO_NDS)) // PS1: in the scratchpad (Script.hpp)
-ScriptEngine scriptEng = ScriptEngine();
+NDS_DTCM ScriptEngine scriptEng = ScriptEngine();
 #endif
 #if RETRO_PLATFORM == RETRO_PS1
-char scriptText[PS1_SCRIPTTEXT_SIZE];
+NDS_DTCM char scriptText[PS1_SCRIPTTEXT_SIZE];
 #define PS1_TXT(c) scriptText[(uint)(c) < PS1_SCRIPTTEXT_SIZE - 1 ? (c) : PS1_SCRIPTTEXT_SIZE - 1]
 #else
 char scriptText[0x4000];
