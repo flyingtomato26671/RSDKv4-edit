@@ -285,7 +285,8 @@ static inline int TypeFlags(int type)
 {
     uint8_t f = s_typeFlag[type & 0xFF];
     if (!f) {
-        f = 1 | (NameHas(typeNames[type], "hud") ? 2 : 0) | (NameHas(typeNames[type], "waterfall") ? 4 : 0);
+        f = 1 | (NameHas(typeNames[type], "hud") ? 2 : 0) | (NameHas(typeNames[type], "waterfall") ? 4 : 0)
+            | (NameHas(typeNames[type], "specialbg") ? 8 : 0);
         s_typeFlag[type & 0xFF] = f;
     }
     return f;
@@ -312,6 +313,8 @@ void DrawObjectList(int Layer)
                 g_ndsHudNames[n] = 0;
             }
         }
+        if ((tf & 8) && g_ps1FaceCap)
+            continue; // the special stage's star field: a full-screen opaque software blit that covers the 3D path (OAM affine later)
         if (type && !(tf & 4)) { // the waterfall overlay costs most of a frame: the animated tiles remain
             if (scriptCode[objectScriptList[type].eventDraw.scriptCodePtr] > 0) {
                 const uint32_t t0 = NdsTicksNow();
