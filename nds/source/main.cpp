@@ -24,6 +24,7 @@ extern volatile uint32_t g_ndsS3dQuads, g_ndsS3dFaces, g_ndsS3dSkipped;
 extern int g_ps1FaceCap, faceCount;
 extern char g_ndsS3dFolder[];
 extern volatile int g_ndsS3dStatus;
+extern volatile uint32_t g_ndsS3dFreeKB, g_ndsS3dFail;
 extern volatile uint32_t g_ndsS3dCalls;
 static int s_3d = 0; // this frame drew 3D polygons (the special stage's path): BG0 shows the geometry engine
 void NdsEngineInfo(char *buf, int n);
@@ -260,6 +261,7 @@ static void showStatus(int page, unsigned frame, unsigned sumV, unsigned maxV, u
         row(" %s", g_ndsMusPath);
         row("hud:%s", (const char *)g_ndsHudNames);
         row("3D st:%d calls:%lu %s", g_ndsS3dStatus, (unsigned long)g_ndsS3dCalls, g_ndsS3dFolder);
+        row(" heap:%luKB failed alloc:%lu", (unsigned long)g_ndsS3dFreeKB, (unsigned long)g_ndsS3dFail);
         row("3D cap:%d faces:%d/%lu", g_ps1FaceCap, faceCount, (unsigned long)g_ndsS3dFaces);
         row(" quads:%lu skip:%lu on:%d", (unsigned long)g_ndsS3dQuads, (unsigned long)g_ndsS3dSkipped, s_3d);
     }
