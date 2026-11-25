@@ -24,6 +24,7 @@ extern volatile uint32_t g_ndsS3dQuads, g_ndsS3dFaces, g_ndsS3dSkipped;
 extern int g_ps1FaceCap, faceCount, vertexCount;
 extern char g_ndsS3dFolder[];
 extern volatile int g_ndsS3dStatus;
+extern int g_ndsS3dGpu;
 extern volatile uint32_t g_ndsS3dTkT, g_ndsS3dTkS, g_ndsS3dTkD, g_ndsS3dQFrame;
 extern volatile uint32_t g_ndsS3dFreeKB, g_ndsS3dFail, g_ndsS3dHeapUsed, g_ndsS3dHeapArena, g_ndsS3dHeapLimit;
 extern volatile uint32_t g_ndsS3dCalls;
@@ -262,6 +263,7 @@ static void showStatus(int page, unsigned frame, unsigned sumV, unsigned maxV, u
         row(" %s", g_ndsMusPath);
         row("hud:%s", (const char *)g_ndsHudNames);
         row("3D st:%d calls:%lu %s", g_ndsS3dStatus, (unsigned long)g_ndsS3dCalls, g_ndsS3dFolder);
+        row("3D path:%s (L+R+Y)", g_ndsS3dGpu ? "GPU" : "CPU");
         row("3D tk T:%lu S:%lu D:%lu", (unsigned long)g_ndsS3dTkT, (unsigned long)g_ndsS3dTkS, (unsigned long)g_ndsS3dTkD);
         row("3D vtx:%d quads/frame:%lu", vertexCount, (unsigned long)g_ndsS3dQFrame);
         row(" heap used:%lu arena:%lu lim:%lu", (unsigned long)g_ndsS3dHeapUsed, (unsigned long)g_ndsS3dHeapArena, (unsigned long)g_ndsS3dHeapLimit);
@@ -406,6 +408,13 @@ int main(void)
         touchPrev        = touch;
         if (turn)
             page_ = (page_ + 1) % 3;
+        {
+            static bool comboPrev = false; // L + R + Y: switch the special stage's path between the geometry engine and the ARM9 (A/B)
+            const bool combo = (keysHeld() & (KEY_L | KEY_R | KEY_Y)) == (KEY_L | KEY_R | KEY_Y);
+            if (combo && !comboPrev)
+                g_ndsS3dGpu ^= 1;
+            comboPrev = combo;
+        }
         s_3d = Nds3dEndFrame();
         swiWaitForVBlank();
         if (NdsFrameDrawn()) { // show the page just drawn, draw the next frame into the other one

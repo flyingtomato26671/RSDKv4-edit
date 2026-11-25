@@ -9,6 +9,8 @@ extern "C" {
 unsigned NdsHeapFree(void);
 void NdsHeapInfo(unsigned *totalKB, unsigned *usedKB, unsigned *limitKB);
 int Nds3dQuad(const int *xy, unsigned rgb15, int z);
+void Nds3dGpuBegin(const int *vals, int projX, int projY);
+void Nds3dGpuOrtho(void);
 void *Nds3dWorkRam(unsigned *bytes);
 }
 
@@ -35,6 +37,7 @@ volatile int g_ndsS3dStatus = 0; // 0 never called, 1 folder not a special stage
 volatile uint32_t g_ndsS3dHeapUsed = 0, g_ndsS3dHeapArena = 0, g_ndsS3dHeapLimit = 0;
 volatile uint32_t g_ndsS3dFreeKB = 0, g_ndsS3dFail = 0; // heap free (KB) at the call, which allocation failed (1..5)
 volatile uint32_t g_ndsS3dTkT = 0, g_ndsS3dTkS = 0, g_ndsS3dTkD = 0, g_ndsS3dQFrame = 0; // last call's ticks: transform, sort, draw
+int g_ndsS3dGpu = 1; // 1: the geometry engine transforms / projects / depth-sorts the path (L+R+Y toggles, for A/B); 0: the ARM9 does
 volatile uint32_t g_ndsS3dCalls = 0;
 volatile uint32_t g_ndsS3dQuads = 0, g_ndsS3dFaces = 0, g_ndsS3dSkipped = 0;
 
@@ -134,6 +137,10 @@ void TransformVertexBuffer()
     const uint32_t tk0 = NdsTicksNow();
     matFinal = matWorld;
     MatrixMultiply(&matFinal, &matView);
+    if (g_ndsS3dGpu) {
+        g_ndsS3dTkT = NdsTicksNow() - tk0;
+        return; // the geometry engine transforms the vertices
+    }
     const int m00 = matFinal.values[0][0], m10 = matFinal.values[1][0], m20 = matFinal.values[2][0], m30 = matFinal.values[3][0];
     const int m01 = matFinal.values[0][1], m11 = matFinal.values[1][1], m21 = matFinal.values[2][1], m31 = matFinal.values[3][1];
     const int m02 = matFinal.values[0][2], m12 = matFinal.values[1][2], m22 = matFinal.values[2][2], m32 = matFinal.values[3][2];
@@ -340,9 +347,178 @@ void Draw3DScene(int spriteSheetID)
     g_ndsS3dFaces = n;
 }
 
+
+// ---- the geometry engine's path: faces go to the DS 3D engine raw; only sprite faces and 2D faces are worked out here
+static volatile uint32_t *const GX_COLOR    = (volatile uint32_t *)0x04000480;
+static volatile uint32_t *const GX_VERTEX16 = (volatile uint32_t *)0x0400048C;
+static inline void GxVertex(const Vertex &v)
+{
+    *GX_VERTEX16 = ((uint32_t)(uint16_t)v.x) | ((uint32_t)v.y << 16);
+    *GX_VERTEX16 = (uint32_t)(uint16_t)v.z;
+}
+
+// A sprite face (rings, bombs, players): vertex a through the matrix, then the OAM / software sprite draws
+static void SpriteFaceDraw(const Face &f, int ax, int ay, int az, int spriteSheetID)
+{
+    if (az <= 0)
+        return;
+    switch (f.flag) {
+        case FACE_FLAG_TEXTURED_C:
+        case FACE_FLAG_TEXTURED_C_BLEND: {
+            const Vertex &va = vertexBuffer[f.a], &vb = vertexBuffer[f.b], &vc = vertexBuffer[f.c];
+            ScaledRect(SCREEN_CENTERX + HwDiv(projectionX * (ax - vb.u), az), SCREEN_CENTERY - HwDiv(projectionY * (ay + vb.v), az),
+                       SCREEN_CENTERX + HwDiv(projectionX * (ax + vb.u), az), SCREEN_CENTERY - HwDiv(projectionY * (ay - vb.v), az),
+                       va.u - vc.u, va.v - vc.v, va.u + vc.u, va.v + vc.v, spriteSheetID, f.flag == FACE_FLAG_TEXTURED_C_BLEND);
+            break;
+        }
+        case FACE_FLAG_3DSPRITE: {
+            const int xpos = SCREEN_CENTERX + HwDiv(projectionX * ax, az), ypos = SCREEN_CENTERY - HwDiv(projectionY * ay, az);
+            ObjectScript *scriptInfo = &objectScriptList[vertexBuffer[f.a].u];
+            SpriteFrame *frame       = &scriptFrames[scriptInfo->frameListOffset + vertexBuffer[f.b].u];
+            switch (vertexBuffer[f.a].v) {
+                case FX_SCALE:
+                    DrawSpriteScaled(vertexBuffer[f.b].v, xpos, ypos, -frame->pivotX, -frame->pivotY, vertexBuffer[f.c].u, vertexBuffer[f.c].u,
+                                     frame->width, frame->height, frame->sprX, frame->sprY, scriptInfo->spriteSheetID);
+                    break;
+                case FX_ROTATE:
+                    DrawSpriteRotated(vertexBuffer[f.b].v, xpos, ypos, -frame->pivotX, -frame->pivotY, frame->sprX, frame->sprY, frame->width,
+                                      frame->height, vertexBuffer[f.c].v, scriptInfo->spriteSheetID);
+                    break;
+                case FX_ROTOZOOM:
+                    DrawSpriteRotozoom(vertexBuffer[f.b].v, xpos, ypos, -frame->pivotX, -frame->pivotY, frame->sprX, frame->sprY, frame->width,
+                                       frame->height, vertexBuffer[f.c].v, vertexBuffer[f.c].u, scriptInfo->spriteSheetID);
+                    break;
+            }
+            break;
+        }
+    }
+}
+
+struct Face2D {
+    int x[4], y[4];
+    unsigned rgb15;
+};
+
+static void Draw3DSceneGpu(int spriteSheetID)
+{
+    const int n = faceCount < g_ps1FaceCap ? faceCount : g_ps1FaceCap;
+    int vals[12];
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j) vals[i * 3 + j] = matFinal.values[i][j];
+    for (int j = 0; j < 3; ++j) vals[9 + j] = matFinal.values[3][j];
+    Nds3dGpuBegin(vals, projectionX, projectionY);
+    const int m00 = vals[0], m10 = vals[3], m20 = vals[6], m30 = vals[9];
+    const int m01 = vals[1], m11 = vals[4], m21 = vals[7], m31 = vals[10];
+    const int m02 = vals[2], m12 = vals[5], m22 = vals[8], m32 = vals[11];
+#define XFM_X(v) ((((v).x * m00) >> 8) + (((v).y * m10) >> 8) + (((v).z * m20) >> 8) + m30)
+#define XFM_Y(v) ((((v).x * m01) >> 8) + (((v).y * m11) >> 8) + (((v).z * m21) >> 8) + m31)
+#define XFM_Z(v) ((((v).x * m02) >> 8) + (((v).y * m12) >> 8) + (((v).z * m22) >> 8) + m32)
+    static uint16_t spFace[256];
+    static int spZ[256];
+    int nsp = 0;
+    static Face2D two[32];
+    int n2 = 0, quads = 0;
+    for (int i = 0; i < n; ++i) {
+        const Face &f = faceBuffer[i];
+        switch (f.flag) {
+            case FACE_FLAG_COLORED_3D:
+            case FACE_FLAG_FADED: {
+                const uint32_t c = f.color;
+                int r5 = (c >> 19) & 31, g5 = (c >> 11) & 31, b5 = (c >> 3) & 31;
+                if (f.flag == FACE_FLAG_FADED) {
+                    const int depth = (XFM_Z(vertexBuffer[f.a]) + XFM_Z(vertexBuffer[f.b]) + XFM_Z(vertexBuffer[f.c]) + XFM_Z(vertexBuffer[f.d])) >> 2;
+                    int fogStr = (depth - 0x8000) >> 8;
+                    if (fogStr < 0) fogStr = 0;
+                    if (fogStr > fogStrength) fogStr = fogStrength;
+                    const int a = 0xFF - fogStr, ia = fogStr;
+                    if (a < 1)
+                        break;
+                    const uint32_t fc = (uint32_t)fogColor;
+                    r5 = (((fc >> 19) & 31) * ia >> 8) + (r5 * a >> 8);
+                    g5 = (((fc >> 11) & 31) * ia >> 8) + (g5 * a >> 8);
+                    b5 = (((fc >> 3) & 31) * ia >> 8) + (b5 * a >> 8);
+                }
+                else if (((c & 0x7F000000) >> 23) < 128) {
+                    break; // translucent: not blended yet
+                }
+                if (quads >= 1900)
+                    break;
+                ++quads;
+                *GX_COLOR = Rgb15(r5, g5, b5);
+                GxVertex(vertexBuffer[f.a]);
+                GxVertex(vertexBuffer[f.b]);
+                GxVertex(vertexBuffer[f.d]);
+                GxVertex(vertexBuffer[f.c]);
+                break;
+            }
+            case FACE_FLAG_COLORED_2D: {
+                const uint32_t c = f.color;
+                if (((c & 0x7F000000) >> 23) < 128 || n2 >= 32)
+                    break;
+                const Vertex *vs[4] = { &vertexBuffer[f.a], &vertexBuffer[f.b], &vertexBuffer[f.c], &vertexBuffer[f.d] };
+                bool ok = true;
+                Face2D &q = two[n2];
+                for (int k = 0; k < 4; ++k) {
+                    if (XFM_Z(*vs[k]) < 0)
+                        ok = false;
+                    q.x[k] = ClampS(XFM_X(*vs[k]) - WIN_X0);
+                    q.y[k] = ClampS(XFM_Y(*vs[k]) - WIN_Y0);
+                }
+                if (ok) {
+                    q.rgb15 = Rgb15((c >> 19) & 31, (c >> 11) & 31, (c >> 3) & 31);
+                    ++n2;
+                }
+                break;
+            }
+            case FACE_FLAG_TEXTURED_C:
+            case FACE_FLAG_TEXTURED_C_BLEND:
+            case FACE_FLAG_3DSPRITE:
+                if (nsp < 256) {
+                    spFace[nsp] = (uint16_t)i;
+                    spZ[nsp]    = XFM_Z(vertexBuffer[f.a]);
+                    ++nsp;
+                }
+                break;
+            default: break; // textured 3D / 2D faces: not used by the half-pipe (vertex colours only)
+        }
+    }
+    g_ndsS3dQuads = g_ndsS3dQuads + quads;
+    // sprites far to near (insertion sort: the list is short and nearly ordered)
+    for (int i = 1; i < nsp; ++i) {
+        const uint16_t fi = spFace[i];
+        const int z       = spZ[i];
+        int j             = i - 1;
+        while (j >= 0 && spZ[j] < z) {
+            spFace[j + 1] = spFace[j];
+            spZ[j + 1]    = spZ[j];
+            --j;
+        }
+        spFace[j + 1] = fi;
+        spZ[j + 1]    = z;
+    }
+    for (int i = 0; i < nsp; ++i) {
+        const Face &f = faceBuffer[spFace[i]];
+        const Vertex &a = vertexBuffer[f.a];
+        SpriteFaceDraw(f, XFM_X(a), XFM_Y(a), spZ[i], spriteSheetID);
+    }
+    if (n2) {
+        Nds3dGpuOrtho();
+        for (int i = 0; i < n2; ++i) FlatQuad(two[i].x, two[i].y, two[i].rgb15, -20000 + i);
+    }
+    g_ndsS3dFaces = n;
+}
+
 void PS1Draw3DSceneOT(int spriteSheetID)
 {
     const uint32_t t0 = NdsTicksNow();
+    if (g_ndsS3dGpu && g_ps1FaceCap) {
+        const uint32_t q0 = g_ndsS3dQuads;
+        Draw3DSceneGpu(spriteSheetID);
+        g_ndsS3dTkS = 0;
+        g_ndsS3dTkD = NdsTicksNow() - t0;
+        g_ndsS3dQFrame = g_ndsS3dQuads - q0;
+        return;
+    }
     Sort3DDrawList();
     const uint32_t t1 = NdsTicksNow();
     const uint32_t q0 = g_ndsS3dQuads;

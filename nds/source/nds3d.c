@@ -6,15 +6,20 @@
 
 static int s_init = 0, s_active = 0, s_quads = 0;
 
-static void FrameBegin(void)
+static void Init(void)
 {
-    if (!s_init) {
-        glInit();
-        glClearColor(0, 0, 0, 0); // transparent: the other layers show through where nothing is drawn
-        glClearPolyID(0);
-        glClearDepth(GL_MAX_DEPTH);
-        s_init = 1;
-    }
+    if (s_init)
+        return;
+    glInit();
+    glClearColor(0, 0, 0, 0); // transparent: the other layers show through where nothing is drawn
+    glClearPolyID(0);
+    glClearDepth(GL_MAX_DEPTH);
+    s_init = 1;
+}
+
+// Orthographic view, one vertex unit = one pixel of the 256x192 window (flat quads: painter's order by decreasing z)
+static void SetupOrtho(void)
+{
     glViewport(0, 0, 255, 191);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
@@ -23,9 +28,52 @@ static void FrameBegin(void)
     glLoadIdentity();
     glScalef32(inttof32(4096), inttof32(4096), inttof32(4096)); // vertex coordinates are raw 1.3.12 values: raw 1 = one pixel
     glPolyFmt(POLY_ALPHA(31) | POLY_CULL_NONE | POLY_ID(1));
+}
+
+static void FrameBegin(void)
+{
+    Init();
+    SetupOrtho();
     glBegin(GL_QUADS);
     s_active = 1;
     s_quads  = 0;
+}
+
+// The geometry engine does the whole special-stage path: vals = the engine's final matrix (rows 0..2 x columns 0..2, then the
+// translation row; 256 = 1.0), projX / projY = the engine's projection factors. Vertices are sent raw (16-bit engine units).
+// Camera space looks down +z; screen x = 128 + projX * x / z, y = 96 - projY * y / z; the depth buffer orders the faces.
+void Nds3dGpuBegin(const int *vals, int projX, int projY)
+{
+    Init();
+    glViewport(0, 0, 255, 191);
+    m4x4 p;
+    for (int i = 0; i < 16; ++i) p.m[i] = 0;
+    p.m[0]  = projX * 32;          // projX / 128 in 20.12
+    p.m[5]  = projY * 4096 / 96;   // projY / 96
+    p.m[10] = 4097;                // z: near 32, far 196608 (ndc z = A + B / z)
+    p.m[14] = -262197;
+    p.m[11] = 4096;                // w = z
+    glMatrixMode(GL_PROJECTION);
+    glLoadMatrix4x4(&p);
+    m4x3 mv;
+    for (int i = 0; i < 9; ++i) mv.m[i] = vals[i] << 16; // values / 256 * 4096 (raw vertices are 1.3.12) in 20.12
+    for (int j = 0; j < 3; ++j) mv.m[9 + j] = vals[9 + j] << 12;
+    glMatrixMode(GL_MODELVIEW);
+    glLoadMatrix4x3(&mv);
+    glPolyFmt(POLY_ALPHA(31) | POLY_CULL_NONE | POLY_ID(1));
+    glBegin(GL_QUADS);
+    s_active = 1;
+    s_quads  = 0;
+}
+
+// Switches to the flat orthographic view for what follows (2D faces drawn over the 3D ones)
+void Nds3dGpuOrtho(void)
+{
+    if (s_active)
+        glEnd();
+    SetupOrtho();
+    glBegin(GL_QUADS);
+    s_active = 1;
 }
 
 // xy: x0 y0 x1 y1 x2 y2 x3 y3 in window pixels, in perimeter order; z: -32767..32767, smaller = nearer. Returns 0 when the
