@@ -130,14 +130,21 @@ def main():
                       'brick', 'grounder', 'springboard', 'arzdraw', 'cylinder', 'cloud', 'drawsubs', 'stagesetup', 'spikes',
                       'turret', 'beltplat', 'hflipper', 'earthquake', 'mpzsetup', 'monitor', 'invblock', 'cledge', 'steampiston',
                       'backpause', 'playerinput', 'playerphys', 'playerstates', 'tailsai']
-        ok, skipped = [], []
+        ok, skipped, why = [], [], {}
         for name in ds_patches:
             r = subprocess.run([PY, os.path.join(HERE, 'scripts', 'patch_bytecode.py'), bc, '--game', a.game],
                                env=dict(env or os.environ, PS1_PATCH_ONLY=name), capture_output=True, text=True)
-            (ok if r.returncode == 0 else skipped).append(name)
+            if r.returncode == 0:
+                ok.append(name)
+            else:
+                msg = (r.stderr or r.stdout).strip().splitlines()
+                skipped.append(name)
+                why[name] = msg[-1][:160] if msg else 'failed'
         print('[1 scripts] natives applied: %s' % ', '.join(ok), flush=True)
         if skipped:
             print('[1 scripts] skipped (the data differs from the build they transcribe): %s' % ', '.join(skipped), flush=True)
+            for name in skipped:
+                print('    %s: %s' % (name, why[name]), flush=True)
     else:
         run('1 scripts', [PY, os.path.join(HERE, 'scripts', 'patch_bytecode.py'), bc, '--game', a.game], env=env)
         run('1 scripts', [PY, os.path.join(HERE, 'scripts', 'scene3d_stages.py'), bc, data], env=env)
