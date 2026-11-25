@@ -2,7 +2,9 @@
 #define DRAWING_H
 
 #define SURFACE_COUNT (24)
-#if RETRO_PLATFORM == RETRO_PS1
+#if defined(RETRO_NDS)
+#define GFXDATA_SIZE (0x100000) // DS: the stage's sprite sheets, 8-bit, in RAM (1 MB)
+#elif RETRO_PLATFORM == RETRO_PS1
 #define GFXDATA_SIZE (0x10) // PS1: sprite pixels are in VRAM (atlas), never in RAM
 #else
 #define GFXDATA_SIZE  (0x800 * 0x800)

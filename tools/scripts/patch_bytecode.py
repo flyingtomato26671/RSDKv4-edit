@@ -2014,6 +2014,14 @@ def callable_from_native(path, roots):
     return None
 
 
+def near_miss(got, sig):
+    """Where a listing first differs from a signature: 'instruction N: has X, expected Y' (build_assets --ds shows it)."""
+    n = 0
+    while n < len(got) and n < len(sig) and got[n] == sig[n]:
+        n += 1
+    return n, ('instruction %d of %d: has %r, expected %r' % (n, len(sig), got[n] if n < len(got) else '<end>', sig[n] if n < len(sig) else '<end>'))
+
+
 def patch_global_function(bcdir, sig, op_name):
     """The one GlobalCode function whose listing is exactly `sig` -> op / return."""
     names, vars_ = bs.tables(3)
@@ -2024,6 +2032,7 @@ def patch_global_function(bcdir, sig, op_name):
     code, p = bs.blocks(raw, 0)
     rest = raw[p:]
     found, already = [], []
+    best = (-1, 0, '')
     for f, (start, _) in enumerate(bs.load(path)[4]):
         if not 0 <= start < len(code):
             continue
@@ -2031,14 +2040,20 @@ def patch_global_function(bcdir, sig, op_name):
             already.append(f)
             continue
         try:
-            if listing(instructions(code, start, names, vars_)) == sig:
+            got = listing(instructions(code, start, names, vars_))
+            if got == sig:
                 found.append((f, start))
+            else:
+                n, why = near_miss(got, sig)
+                if n > best[0]:
+                    best = (n, f, why)
         except (IndexError, KeyError):
             continue
     if already and not found:
         return '%s already native (function %s)' % (op_name, already)
     if len(found) != 1:
-        sys.exit('ERROR patch_bytecode: expected one GlobalCode function for %s, found %d' % (op_name, len(found)))
+        sys.exit('ERROR patch_bytecode: expected one GlobalCode function for %s, found %d (closest: function %d, %s)'
+                 % (op_name, len(found), best[1], best[2]))
     f, start = found[0]
     code[start:start + 2] = [op, ret]
     open(path, 'wb').write(encode(code) + rest)
@@ -7530,7 +7545,7 @@ def patch_global_sub(bcdir, obj_name, sub, sig, op_name, with_jumps=False, calls
     got = sub_listing(path, global_objects(bcdir).index(obj_name), sub, names, vars_)[3] if with_jumps else \
         listing(instructions(code, start, names, vars_))
     if got != sig:
-        sys.exit('ERROR patch_bytecode: %s sub %d is not the one %s transcribes' % (obj_name, sub, op_name))
+        sys.exit('ERROR patch_bytecode: %s sub %d is not the one %s transcribes (%s)' % (obj_name, sub, op_name, near_miss(got, sig)[1]))
     why = callable_from_native(path, calls) if calls else None
     if why:
         sys.exit('ERROR patch_bytecode: %s calls script functions it cannot run natively: %s' % (op_name, why))
@@ -12303,6 +12318,17 @@ def main():
     if '--game' in args:
         i = args.index('--game'); game = args[i + 1]; del args[i:i + 2]
     bcdir = args[0]
+    if '--dump' in args:  # diagnosis: --dump fn 0 | --dump sub "Stage Setup" 0  -> the GlobalCode listing the patches compare with
+        i = args.index('--dump')
+        names, vars_ = bs.tables(3)
+        path = os.path.join(bcdir, 'GlobalCode.bin')
+        code, _ = bs.blocks(open(path, 'rb').read(), 0)
+        if args[i + 1] == 'fn':
+            start = bs.load(path)[4][int(args[i + 2])][0]
+        else:
+            start = bs.load(path)[2][global_objects(bcdir).index(args[i + 2])][int(args[i + 3])]
+        print('\n'.join('%d: %s' % (n, l) for n, l in enumerate(listing(instructions(code, start, names, vars_)))))
+        return
     only = os.environ.get('PS1_PATCH_ONLY')  # tests: e.g. "oscillate" (a comma list of the patch names below)
     if game == '1':
         for name, fn in s1_patches():

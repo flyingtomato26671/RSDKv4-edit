@@ -1,4 +1,7 @@
 #include "RetroEngine.hpp"
+#if defined(RETRO_NDS)
+#include "../nds/source/ndsdraw.hpp"
+#endif
 
 #if RETRO_PLATFORM == RETRO_PS1
 #include "../ps1/loading.hh"
@@ -321,7 +324,15 @@ void ProcessStage(void)
             }
 
             // Update
+#if defined(RETRO_NDS)
+            {
+                const uint32_t ndsL0 = NdsTicksNow();
+                ProcessObjects();
+                g_ndsTkLogic = NdsTicksNow() - ndsL0;
+            }
+#else
             PS1_PROF(g_ps1ProfObjectsHbl, ProcessObjects());
+#endif
 
             if (cameraTarget > -1) {
                 if (cameraEnabled == 1) {

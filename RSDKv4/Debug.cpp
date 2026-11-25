@@ -6,8 +6,23 @@ int touchFlags = 0;
 
 int taListStore = 0;
 
+#ifdef RETRO_NDS
+extern "C" void NdsLogPush(const char *line); // nds/source/engine_glue.cpp: ring of the last lines, shown on the sub screen
+#endif
+
 void PrintLog(const char *msg, ...)
 {
+#ifdef RETRO_NDS
+    {
+        char dsBuf[0x100];
+        va_list dsArgs;
+        va_start(dsArgs, msg);
+        vsnprintf(dsBuf, sizeof(dsBuf), msg, dsArgs);
+        va_end(dsArgs);
+        NdsLogPush(dsBuf);
+        return;
+    }
+#endif
 #ifndef RETRO_DISABLE_LOG
     if (engineDebugMode || Engine.consoleEnabled) {
         char buffer[0x100];

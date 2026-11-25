@@ -4,7 +4,7 @@
 extern volatile uint32_t g_ps1SurfaceGen; // ps1/render.cpp: re-binds sheets to the atlas when it changes
 #endif
 
-#if RETRO_PLATFORM != RETRO_PS1 // PS1: images are converted at build time (tools/atlas, tools/tiles); no GIF decoder
+#if RETRO_PLATFORM != RETRO_PS1 || defined(RETRO_NDS) // PS1: images are converted at build time (tools/atlas, tools/tiles); no GIF decoder. The DS decodes the tile GIF at the stage load (nds/source/render.cpp)
 struct GifDecoder {
     int depth;
     int clearCode;
@@ -220,7 +220,7 @@ int AddGraphicsFile(const char *filePath)
         if (++sheetID == SURFACE_COUNT) // Max Sheet cnt
             return 0;
     }
-#if RETRO_PLATFORM == RETRO_PS1
+#if RETRO_PLATFORM == RETRO_PS1 && !defined(RETRO_NDS)
     // PS1: sprite pixels live only in VRAM (the per-stage atlas, tools/atlas; bound in phase 3). Register the
     // name; never decode an image at runtime (golden rule).
     StrCopy(gfxSurface[sheetID].fileName, sheetPath);
@@ -238,7 +238,7 @@ int AddGraphicsFile(const char *filePath)
 }
 void RemoveGraphicsFile(const char *filePath, int sheetID)
 {
-#if RETRO_PLATFORM == RETRO_PS1
+#if RETRO_PLATFORM == RETRO_PS1 && !defined(RETRO_NDS)
     // PS1: no pixel data in RAM to compact. Forget the name(s) only (upstream: the last matching sheet).
     if (sheetID < 0) {
         for (int i = 0; i < SURFACE_COUNT; ++i) {
@@ -271,7 +271,7 @@ void RemoveGraphicsFile(const char *filePath, int sheetID)
     }
 }
 
-#if RETRO_PLATFORM == RETRO_PS1
+#if RETRO_PLATFORM == RETRO_PS1 && !defined(RETRO_NDS)
 // PS1: the dev menu's LoadGIFFile("Data/Game/SystemText.gif") has no atlas: nothing to load.
 int LoadGIFFile(const char *filePath, byte sheetID) { return false; }
 #else
