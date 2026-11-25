@@ -42,7 +42,7 @@ static void FrameBegin(void)
 // The geometry engine does the whole special-stage path: vals = the engine's final matrix (rows 0..2 x columns 0..2, then the
 // translation row; 256 = 1.0), projX / projY = the engine's projection factors. Vertices are sent raw (16-bit engine units).
 // Camera space looks down +z; screen x = 128 + projX * x / z, y = 96 - projY * y / z; the depth buffer orders the faces.
-void Nds3dGpuBegin(const int *vals, int projX, int projY)
+void Nds3dGpuBegin(const int *vals, int projX, int projY, int shift)
 {
     Init();
     glViewport(0, 0, 255, 191);
@@ -56,7 +56,7 @@ void Nds3dGpuBegin(const int *vals, int projX, int projY)
     glMatrixMode(GL_PROJECTION);
     glLoadMatrix4x4(&p);
     m4x3 mv;
-    for (int i = 0; i < 9; ++i) mv.m[i] = vals[i] << 16; // values / 256 * 4096 (raw vertices are 1.3.12) in 20.12
+    for (int i = 0; i < 9; ++i) mv.m[i] = vals[i] << (16 + shift); // values / 256 * 4096 (raw vertices are 1.3.12, sent >> shift) in 20.12
     for (int j = 0; j < 3; ++j) mv.m[9 + j] = vals[9 + j] << 12;
     glMatrixMode(GL_MODELVIEW);
     glLoadMatrix4x3(&mv);

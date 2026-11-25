@@ -9,7 +9,7 @@ extern "C" {
 unsigned NdsHeapFree(void);
 void NdsHeapInfo(unsigned *totalKB, unsigned *usedKB, unsigned *limitKB);
 int Nds3dQuad(const int *xy, unsigned rgb15, int z);
-void Nds3dGpuBegin(const int *vals, int projX, int projY);
+void Nds3dGpuBegin(const int *vals, int projX, int projY, int shift);
 void Nds3dGpuOrtho(void);
 void *Nds3dWorkRam(unsigned *bytes);
 }
@@ -38,6 +38,7 @@ volatile uint32_t g_ndsS3dHeapUsed = 0, g_ndsS3dHeapArena = 0, g_ndsS3dHeapLimit
 volatile uint32_t g_ndsS3dFreeKB = 0, g_ndsS3dFail = 0; // heap free (KB) at the call, which allocation failed (1..5)
 volatile uint32_t g_ndsS3dTkT = 0, g_ndsS3dTkS = 0, g_ndsS3dTkD = 0, g_ndsS3dQFrame = 0; // last call's ticks: transform, sort, draw
 int g_ndsS3dGpu = 1; // 1: the geometry engine transforms / projects / depth-sorts the path (L+R+Y toggles, for A/B); 0: the ARM9 does
+volatile int g_ndsS3dShift = 0, g_ndsS3dMaxCoord = 0; // vertices are sent >> shift (the engine's coordinates may not fit 16 bits)
 volatile uint32_t g_ndsS3dRange = 0; // vertices sent to the geometry engine outside the 16-bit range (wrapped)
 volatile uint32_t g_ndsS3dCalls = 0;
 volatile uint32_t g_ndsS3dQuads = 0, g_ndsS3dFaces = 0, g_ndsS3dSkipped = 0;
@@ -352,12 +353,14 @@ void Draw3DScene(int spriteSheetID)
 // ---- the geometry engine's path: faces go to the DS 3D engine raw; only sprite faces and 2D faces are worked out here
 static volatile uint32_t *const GX_COLOR    = (volatile uint32_t *)0x04000480;
 static volatile uint32_t *const GX_VERTEX16 = (volatile uint32_t *)0x0400048C;
+static int s_gxShift = 0;
 static inline void GxVertex(const Vertex &v)
 {
-    if ((unsigned)(v.x + 32768) > 65535u || (unsigned)(v.y + 32768) > 65535u || (unsigned)(v.z + 32768) > 65535u)
+    const int x = v.x >> s_gxShift, y = v.y >> s_gxShift, z = v.z >> s_gxShift;
+    if ((unsigned)(x + 32768) > 65535u || (unsigned)(y + 32768) > 65535u || (unsigned)(z + 32768) > 65535u)
         g_ndsS3dRange = g_ndsS3dRange + 1;
-    *GX_VERTEX16 = ((uint32_t)(uint16_t)v.x) | ((uint32_t)v.y << 16);
-    *GX_VERTEX16 = (uint32_t)(uint16_t)v.z;
+    *GX_VERTEX16 = ((uint32_t)(uint16_t)x) | ((uint32_t)y << 16);
+    *GX_VERTEX16 = (uint32_t)(uint16_t)z;
 }
 
 // A sprite face (rings, bombs, players): vertex a through the matrix, then the OAM / software sprite draws
@@ -409,7 +412,26 @@ static void Draw3DSceneGpu(int spriteSheetID)
     for (int i = 0; i < 3; ++i)
         for (int j = 0; j < 3; ++j) vals[i * 3 + j] = matFinal.values[i][j];
     for (int j = 0; j < 3; ++j) vals[9 + j] = matFinal.values[3][j];
-    Nds3dGpuBegin(vals, projectionX, projectionY);
+    // the coordinates the geometry engine receives are 16-bit: find how far the mesh reaches and halve until it fits
+    int maxc = 0;
+    for (int i = 0; i < vertexCount && i < g_ps1VtxCap; ++i) {
+        const Vertex &v = vertexBuffer[i];
+        int a = v.x < 0 ? -v.x : v.x, b = v.y < 0 ? -v.y : v.y, d = v.z < 0 ? -v.z : v.z;
+        if (b > a) a = b;
+        if (d > a) a = d;
+        if (a > maxc) maxc = a;
+    }
+    int maxv = 1;
+    for (int i = 0; i < 9; ++i) {
+        const int a = vals[i] < 0 ? -vals[i] : vals[i];
+        if (a > maxv) maxv = a;
+    }
+    int shift = 0;
+    while (shift < 8 && (maxc >> shift) > 32767 && ((long long)maxv << (17 + shift)) < 0x7FFFFFFFLL) ++shift;
+    s_gxShift       = shift;
+    g_ndsS3dShift   = shift;
+    g_ndsS3dMaxCoord = maxc;
+    Nds3dGpuBegin(vals, projectionX, projectionY, shift);
     const int m00 = vals[0], m10 = vals[3], m20 = vals[6], m30 = vals[9];
     const int m01 = vals[1], m11 = vals[4], m21 = vals[7], m31 = vals[10];
     const int m02 = vals[2], m12 = vals[5], m22 = vals[8], m32 = vals[11];
