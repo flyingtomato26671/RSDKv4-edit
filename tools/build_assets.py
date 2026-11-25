@@ -139,7 +139,7 @@ def main():
             else:
                 msg = (r.stderr or r.stdout).strip().splitlines()
                 skipped.append(name)
-                why[name] = msg[-1][:160] if msg else 'failed'
+                why[name] = msg[-1][:300] if msg else 'failed'
         print('[1 scripts] natives applied: %s' % ', '.join(ok), flush=True)
         if skipped:
             print('[1 scripts] skipped (the data differs from the build they transcribe): %s' % ', '.join(skipped), flush=True)
