@@ -19,6 +19,9 @@ int NdsEngineReady(void);
 int NdsEngineMode(void);
 void NdsEngineFrame(void);
 extern "C" int Nds3dEndFrame(void);
+extern "C" int Nds3dQuadCount(void);
+extern volatile uint32_t g_ndsS3dQuads, g_ndsS3dFaces, g_ndsS3dSkipped;
+extern int g_ps1FaceCap, faceCount;
 static int s_3d = 0; // this frame drew 3D polygons (the special stage's path): BG0 shows the geometry engine
 void NdsEngineInfo(char *buf, int n);
 const char *NdsLogLine(int back);
@@ -107,11 +110,11 @@ static void applyHw(int bitmapBg, int front)
     volatile uint16_t *hofs[2] = { &REG_BG0HOFS, &REG_BG1HOFS };
     volatile uint16_t *vofs[2] = { &REG_BG0VOFS, &REG_BG1VOFS };
     for (int i = 0; i < 2; i++) {
-        if (i == 0 && s_3d) { // BG0 = the 3D engine's output, behind everything else
+        if (i == 0 && s_3d) { // BG0 = the 3D engine's output: above the tile layers behind it (BG1 / BG2 at 3), below the sprites
             s_dmaTbl[0] = 0;
             DMA_CR(1) = 0;
             REG_DISPCNT |= ENABLE_3D;
-            REG_BG0CNT = BG_PRIORITY(3);
+            REG_BG0CNT = BG_PRIORITY(2);
             videoBgEnable(0);
             continue;
         }
@@ -121,7 +124,7 @@ static void applyHw(int bitmapBg, int front)
         DMA_CR(1 + i) = 0; // stop the previous frame's per-line scroll
         if (h.hw && h.used[i]) {
             // farther layer first: BG0 = priority 3, BG1 = 2, the extended BG2 = 1; the sprite bitmap (BG3) is 0
-            *cnt[i] = BG_PRIORITY(3 - i) | BG_COLOR_256 | BG_64x64 | BG_TILE_BASE(4) | BG_MAP_BASE(h.buf * 8 + i * 4);
+            *cnt[i] = BG_PRIORITY(s_3d ? 3 : 3 - i) | BG_COLOR_256 | BG_64x64 | BG_TILE_BASE(4) | BG_MAP_BASE(h.buf * 8 + i * 4);
             *hofs[i] = h.table[i][0] & 0x1FF;
             *vofs[i] = h.vofs[i];
             if (!h.uniform[i]) {
@@ -181,7 +184,7 @@ static void applyHw(int bitmapBg, int front)
             irqDisable(IRQ_VCOUNT);
     }
     setBrightness(1, h.bright);
-    bgSetPriority(2, (h.front & 4) ? 0 : 1);
+    bgSetPriority(2, (h.front & 4) ? 0 : (s_3d ? 3 : 1));
     {
         extern uint16_t g_ndsOam[];
         volatile uint32_t *o = (volatile uint32_t *)OAM;
@@ -253,6 +256,8 @@ static void showStatus(int page, unsigned frame, unsigned sumV, unsigned maxV, u
         row("(1 = playing, 0 = no file)");
         row(" %s", g_ndsMusPath);
         row("hud:%s", (const char *)g_ndsHudNames);
+        row("3D cap:%d faces:%d/%lu", g_ps1FaceCap, faceCount, (unsigned long)g_ndsS3dFaces);
+        row(" quads:%lu skip:%lu on:%d", (unsigned long)g_ndsS3dQuads, (unsigned long)g_ndsS3dSkipped, s_3d);
     }
     else {
         row("RSDKv4 DS 3/3: engine");

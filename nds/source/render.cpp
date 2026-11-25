@@ -699,7 +699,7 @@ void DrawStageGFX()
 
     s_hwMode   = HwFrameOk();
     s_hwOpen   = s_hwMode;
-    s_hwLayers = 0;
+    s_hwLayers = g_ps1FaceCap ? 1 : 0; // a 3D scene: BG0 is the geometry engine's, the tile layers behind it start at BG1
     s_obj34    = false;
     g_ndsHw.used[0] = g_ndsHw.used[1] = g_ndsHw.used[2] = g_ndsHw.used[3] = 0;
     g_ndsHw.front = 0;
