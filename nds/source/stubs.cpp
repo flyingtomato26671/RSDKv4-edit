@@ -59,25 +59,6 @@ void InitUserdata() {}
 bool ReadSaveRAMData() { return false; }
 bool WriteSaveRAMData() { return false; }
 
-// ---- Scene3D (special stages; real: scene3d.cpp, later)
-Face *faceBuffer = nullptr;
-Vertex *vertexBuffer = nullptr;
-int faceCount = 0, vertexCount = 0, g_ps1VtxCap = 0, g_ps1FaceCap = 0;
-int fogColor = 0, fogStrength = 0, projectionX = 0, projectionY = 0;
-Matrix matWorld, matView, matTemp;
-void PS1Scene3DPrepare(const char *) {}
-void PS1Draw3DSceneOT(int) {}
-void TransformVertexBuffer() {}
-void TransformVertices(Matrix *, int, int) {}
-void SetIdentityMatrix(Matrix *) {}
-void MatrixMultiply(Matrix *, Matrix *) {}
-void MatrixInverse(Matrix *) {}
-void MatrixRotateX(Matrix *, int) {}
-void MatrixRotateY(Matrix *, int) {}
-void MatrixRotateZ(Matrix *, int) {}
-void MatrixRotateXYZ(Matrix *, short, short, short) {}
-void MatrixScaleXYZ(Matrix *, int, int, int) {}
-void MatrixTranslateXYZ(Matrix *, int, int, int) {}
 
 // ---- online / achievements / globals the PS1 build has no use for
 int achievementCount = 0;

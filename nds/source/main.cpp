@@ -18,6 +18,8 @@ void NdsEngineInit(void);
 int NdsEngineReady(void);
 int NdsEngineMode(void);
 void NdsEngineFrame(void);
+extern "C" int Nds3dEndFrame(void);
+static int s_3d = 0; // this frame drew 3D polygons (the special stage's path): BG0 shows the geometry engine
 void NdsEngineInfo(char *buf, int n);
 const char *NdsLogLine(int back);
 void NdsSetBackBuffer(uint16_t *p);
@@ -105,6 +107,16 @@ static void applyHw(int bitmapBg, int front)
     volatile uint16_t *hofs[2] = { &REG_BG0HOFS, &REG_BG1HOFS };
     volatile uint16_t *vofs[2] = { &REG_BG0VOFS, &REG_BG1VOFS };
     for (int i = 0; i < 2; i++) {
+        if (i == 0 && s_3d) { // BG0 = the 3D engine's output, behind everything else
+            s_dmaTbl[0] = 0;
+            DMA_CR(1) = 0;
+            REG_DISPCNT |= ENABLE_3D;
+            REG_BG0CNT = BG_PRIORITY(3);
+            videoBgEnable(0);
+            continue;
+        }
+        if (i == 0)
+            REG_DISPCNT &= ~ENABLE_3D;
         s_dmaTbl[i] = 0;
         DMA_CR(1 + i) = 0; // stop the previous frame's per-line scroll
         if (h.hw && h.used[i]) {
@@ -379,6 +391,7 @@ int main(void)
         touchPrev        = touch;
         if (turn)
             page_ = (page_ + 1) % 3;
+        s_3d = Nds3dEndFrame();
         swiWaitForVBlank();
         if (NdsFrameDrawn()) { // show the page just drawn, draw the next frame into the other one
             front ^= 1;
