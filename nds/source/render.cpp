@@ -478,6 +478,8 @@ static void HwDynTile(int dest)
     }
 }
 
+// Every stage load (also the next act of the same zone, which does not reload the tileset): the layout and chunks changed
+void NdsStageLoaded() { s_mapVer++; s_chunkVer++; }
 void PS1TileChanged(int) { s_mapVer++; s_chunkVer++; } // a chunk's tiles were edited by a script
 
 void PS1Copy16x16Tile(int dest, int src)

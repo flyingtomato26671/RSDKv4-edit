@@ -115,6 +115,10 @@ visible (`TypeFlags` name flag in `sprites.cpp`).
   redraw just because water crosses it. Up to 4 switches per frame. The first-line palette and the first switch are re-armed at
   **every vblank** (`palVblank`): a frame that took more than one vblank is not redrawn (`applyHw` is not called), and the
   underwater palette used to stay on the part above the water for that frame (the 1-frame flicker near water).
+- **Act change in the same zone**: the engine's `CheckCurrentStageFolder` makes the next act a "Reloading Scene" (scripts, sprites and
+  the tileset are *not* reloaded, so `HwReset` does not run) but the layout and chunks are new. The hardware map rows cached from
+  the previous act stayed on screen until scrolled over (Chemical Plant 1 -> 2 started with the wrong tiles). `NdsStageLoaded()`
+  (called at the end of every `LoadStage`) now invalidates the cached rows.
 - **Stage change**: `HwReset` also clears the BG map RAM and marks both bitmap pages dirty, so nothing from the previous stage can
   appear on the first frames of a new one (defensive; a Chemical Plant act 2 start once showed foreign tiles until a restart).
 - **Translucency** is approximated by flicker (shields only); other translucent sprites draw opaque. True blending would

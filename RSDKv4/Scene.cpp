@@ -958,6 +958,14 @@ void LoadStageFiles(void)
     }
     LoadActLayout();
     Init3DFloorBuffer(0);
+#ifdef RETRO_NDS
+    {
+        // nds: the hardware tile maps are cached between frames; a load that does not reload the tileset (the next act of the
+        // same zone: "Reloading Scene") still has a new layout and chunks, so the cached rows are stale
+        extern void NdsStageLoaded(void);
+        NdsStageLoaded();
+    }
+#endif
 #if RETRO_PLATFORM == RETRO_PS1 && !defined(RETRO_PS1_HOST_TOOL)
     PS1DirectOperandsLoad(); // Script.cpp: the scripts' plain operands into their direct form
 #endif
