@@ -464,6 +464,11 @@ static void Draw3DSceneGpu(int spriteSheetID)
 #define XFM_X(v) ((((v).x * m00) >> 8) + (((v).y * m10) >> 8) + (((v).z * m20) >> 8) + m30)
 #define XFM_Y(v) ((((v).x * m01) >> 8) + (((v).y * m11) >> 8) + (((v).z * m21) >> 8) + m31)
 #define XFM_Z(v) ((((v).x * m02) >> 8) + (((v).y * m12) >> 8) + (((v).z * m22) >> 8) + m32)
+    // camera-space depth of every vertex once (kept in the transform scratch array)
+    {
+        const int nv = vertexCount < g_ps1VtxCap ? vertexCount : g_ps1VtxCap;
+        for (int i = 0; i < nv; ++i) s_vt[i].z = XFM_Z(vertexBuffer[i]);
+    }
     static uint16_t spFace[256];
     static int spZ[256];
     int nsp = 0;
@@ -474,10 +479,15 @@ static void Draw3DSceneGpu(int spriteSheetID)
         switch (f.flag) {
             case FACE_FLAG_COLORED_3D:
             case FACE_FLAG_FADED: {
+                // as upstream: a face with a vertex at or behind the camera is not drawn (the geometry engine would clip it into
+                // a huge near polygon instead)
+                const int za = s_vt[f.a].z, zb = s_vt[f.b].z, zc = s_vt[f.c].z, zd = s_vt[f.d].z;
+                if (!(za > 0 && zb > 0 && zc > 0 && zd > 0))
+                    break;
                 const uint32_t c = f.color;
                 int r5 = (c >> 19) & 31, g5 = (c >> 11) & 31, b5 = (c >> 3) & 31;
                 if (f.flag == FACE_FLAG_FADED) {
-                    const int depth = (XFM_Z(vertexBuffer[f.a]) + XFM_Z(vertexBuffer[f.b]) + XFM_Z(vertexBuffer[f.c]) + XFM_Z(vertexBuffer[f.d])) >> 2;
+                    const int depth = (za + zb + zc + zd) >> 2;
                     int fogStr = (depth - 0x8000) >> 8;
                     if (fogStr < 0) fogStr = 0;
                     if (fogStr > fogStrength) fogStr = fogStrength;
