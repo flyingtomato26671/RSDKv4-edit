@@ -46,6 +46,7 @@ static uint32_t s_total, s_loopStart, s_dataPos;    // samples in the file, loop
 static uint64_t s_elapsed, s_written, s_endAbs;     // bus ticks played, samples written to the ring, sample where silence begins
 static uint32_t s_lastT;
 static int s_eof, s_lastRes = 0;
+volatile uint32_t g_ndsMusDry = 0, g_ndsMusFillMax = 0, g_ndsMusFillLast = 0, g_ndsMusStartTk = 0; // ring ran dry (restarted), read cost (bus ticks)
 int NdsMusicLastResult(void) { return s_lastRes; }
 
 // Reads n samples (wrapping to the loop start at the end of the file) into the ring at absolute position s_written.
@@ -125,7 +126,11 @@ int NdsMusicStart(const char *path, int loop, unsigned loopPoint, int vol)
         s_loopStart = 0;
     s_loop = loop;
     s_vol  = vol;
-    MusStartPlayback();
+    {
+        const uint32_t t0 = cpuGetTiming();
+        MusStartPlayback();
+        g_ndsMusStartTk = cpuGetTiming() - t0;
+    }
     s_lastRes = s_id >= 0 ? 1 : -2; // -2: no free hardware channel
     return s_id >= 0;
 }
@@ -168,6 +173,7 @@ int NdsMusicUpdate(void)
         return 0;
     }
     if (!s_eof && played + 256 >= s_written) { // the ring ran dry (a long file read stalled us): restart from here
+        g_ndsMusDry = g_ndsMusDry + 1;
         soundKill(s_id);
         MusStartPlayback();
         return 1;
@@ -177,7 +183,11 @@ int NdsMusicUpdate(void)
         int n = (int)(freeS & ~255ull);
         if (n > MUS_MAXFILL)
             n = MUS_MAXFILL;
+        const uint32_t t0 = cpuGetTiming();
         MusFill(n);
+        g_ndsMusFillLast = cpuGetTiming() - t0;
+        if (g_ndsMusFillLast > g_ndsMusFillMax)
+            g_ndsMusFillMax = g_ndsMusFillLast;
     }
     return 1;
 }

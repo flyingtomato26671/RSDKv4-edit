@@ -112,7 +112,11 @@ visible (`TypeFlags` name flag in `sprites.cpp`).
 - **Fades** that the scripts do with full-screen black/white `DrawRectangle` calls use the hardware **master brightness**
   (`g_ndsScriptBright`, `setBrightness`) instead of filling the screen.
 - **Water**: the palette is switched in the **HBlank** at the water line (VCOUNT IRQ) so the screen never needs a software
-  redraw just because water crosses it. Up to 4 switches per frame.
+  redraw just because water crosses it. Up to 4 switches per frame. The first-line palette and the first switch are re-armed at
+  **every vblank** (`palVblank`): a frame that took more than one vblank is not redrawn (`applyHw` is not called), and the
+  underwater palette used to stay on the part above the water for that frame (the 1-frame flicker near water).
+- **Stage change**: `HwReset` also clears the BG map RAM and marks both bitmap pages dirty, so nothing from the previous stage can
+  appear on the first frames of a new one (defensive; a Chemical Plant act 2 start once showed foreign tiles until a restart).
 - **Translucency** is approximated by flicker (shields only); other translucent sprites draw opaque. True blending would
   need OBJ semi-transparency + BLDCNT and was not worth the cost.
 
@@ -197,6 +201,7 @@ byte-exact A/B tests). Not changed; the user has not decided.
 | Global SFX loaded at init; stage SFX take ids after them | A bug made stage SFX take ids 0.. and replace globals | Correct effects |
 | Finished SFX do not `soundKill` a possibly reused channel; only an ended SFX frees a channel | Stutter/cut-offs of the ring sound | |
 | Music: `.dsm` file streamed from the SD card into a 16384-sample ring buffer; prefill 8192, refill <= 2048 samples per frame; ARM9 computes the play position from the bus timer | Streaming small pieces in the background | "10/10" music; occasional load hiccups addressed with smaller prefill/refill (*check on hardware*) |
+| Music counters on the console: `mus dry` (ring ran dry and playback was restarted), `start` (ticks to open and prefill), `fill last/max` (ticks of one SD refill) | Tell a stalled SD read from a clock drift | |
 | Diagnostics: SFX ok/bad, open/fmt/mem failures, last bad file, music track/result/path | Find missing/wrong files fast | Showed the earlier mismatch was the user's SD scripts, not a code bug |
 
 ---

@@ -380,6 +380,10 @@ static void HwReset()
     s_mapVer++;
     s_chunkVer++;
     s_palVer  = 0xFFFFFFFF;
+    // nothing of the previous stage may stay in the maps or in the sprite bitmap pages (a stage that started with tiles of the
+    // previous one on screen was fixed by dying, which does not reset the pool)
+    for (volatile uint32_t *mp = (volatile uint32_t *)HW_MAP_BASE, *me = mp + 0x10000 / 4; mp < me; ++mp) *mp = 0;
+    s_allDirty[0] = s_allDirty[1] = true;
     volatile uint32_t *z = HwTile(0);
     for (int i = 0; i < 16; ++i) z[i] = 0;
 }

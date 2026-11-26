@@ -25,6 +25,7 @@ extern int g_ps1FaceCap, faceCount, vertexCount;
 extern char g_ndsS3dFolder[];
 extern volatile int g_ndsS3dStatus;
 extern int g_ndsS3dGpu;
+extern volatile uint32_t g_ndsMusDry, g_ndsMusFillMax, g_ndsMusFillLast, g_ndsMusStartTk;
 extern volatile uint32_t g_ndsS3dRange, g_ndsS3dTOver;
 extern volatile int g_ndsS3dShift, g_ndsS3dMaxCoord;
 extern volatile uint32_t g_ndsXformOam, g_ndsXformSw, g_ndsXformWhy, g_ndsXformSize;
@@ -69,9 +70,11 @@ static volatile unsigned g_vbl = 0;
 // The per-line scroll DMAs (one entry per HBlank) are restarted every vblank: a frame that takes longer than one vblank (or a
 // pause) would otherwise let them run past the end of their table and scroll the backgrounds with garbage.
 static const uint32_t *volatile s_dmaTbl[2] = { 0, 0 };
+static void palVblank(void);
 static void vblankCount(void)
 {
     g_vbl = g_vbl + 1;
+    palVblank();
     for (int i = 0; i < 2; i++) {
         const uint32_t *t = s_dmaTbl[i];
         if (!t)
@@ -86,7 +89,7 @@ static void vblankCount(void)
 
 // ---- water: the engine's palette bank changes down the screen; the hardware tile backgrounds have one palette, so it is
 // switched in the HBlank before the line where the bank changes (VCOUNT interrupt).
-static int s_swN = 0, s_swK = 0, s_swLine[4], s_swBank[4], s_clearIdx = 0;
+static int s_swN = 0, s_swK = 0, s_swLine[4], s_swBank[4], s_clearIdx = 0, s_bank0 = 0;
 static void palCopy(int bank)
 {
     const uint32_t *src = (const uint32_t *)fullPalette[bank];
@@ -98,6 +101,17 @@ static void palCopy(int bank)
 static inline void setVCount(int line)
 {
     REG_DISPSTAT = (REG_DISPSTAT & 0x003F) | ((line & 0xFF) << 8) | ((line & 0x100) ? 0x80 : 0);
+}
+// Every vblank: the palette of the screen's first line again and the first water switch re-armed. Without this, a frame that
+// took more than one vblank (not redrawn: applyHw not called) kept the underwater palette on the part above the water.
+static void palVblank(void)
+{
+    if (s_swN > 0) {
+        palCopy(s_bank0);
+        s_swK = 0;
+        setVCount(s_swLine[0] - 1);
+        irqEnable(IRQ_VCOUNT);
+    }
 }
 static void vcountHandler(void)
 {
@@ -179,6 +193,7 @@ static void applyHw(int bitmapBg, int front)
     if (h.hw) { // palette: bank of the first line now, the others in the HBlanks before their lines
         s_clearIdx = h.clearIdx;
         palCopy(h.bank0);
+        s_bank0 = h.bank0;
         s_swN = h.nSwitch;
         s_swK = 0;
         for (int i = 0; i < s_swN; i++) {
@@ -264,6 +279,8 @@ static void showStatus(int page, unsigned frame, unsigned sumV, unsigned maxV, u
         row("music track:%d result:%d", g_ndsMusTrack, g_ndsMusRes);
         row("(1 = playing, 0 = no file)");
         row(" %s", g_ndsMusPath);
+        row("mus dry:%lu start:%lu", (unsigned long)g_ndsMusDry, (unsigned long)g_ndsMusStartTk);
+        row(" fill last:%lu max:%lu", (unsigned long)g_ndsMusFillLast, (unsigned long)g_ndsMusFillMax);
         row("hud:%s", (const char *)g_ndsHudNames);
         row("3D st:%d calls:%lu %s", g_ndsS3dStatus, (unsigned long)g_ndsS3dCalls, g_ndsS3dFolder);
         row("xform oam:%lu sw:%lu why:%lu %lux%lu", (unsigned long)g_ndsXformOam, (unsigned long)g_ndsXformSw, (unsigned long)g_ndsXformWhy,
